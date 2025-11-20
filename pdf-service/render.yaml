@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: wif-fin-pdf-service
+    env: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ALLOWED_ORIGINS
+        value: http://localhost:5173,https://*.pages.dev
