@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WIF Finance System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+              serif: ['Merriweather', 'serif'],
+              mono: ['Roboto Mono', 'monospace'],
+            },
+            colors: {
+              'wif-navy': '#0f172a',   // Deepest Navy for text
+              'wif-red': '#bf0000',    // Nikkei Style Red
+              'wif-gray': '#f3f4f6',   // Light background for table headers
+              'wif-border': '#e5e7eb', // Standard border gray
+            },
+            animation: {
+              'fade-in': 'fadeIn 0.5s ease-out',
+              'slide-up': 'slideUp 0.4s ease-out',
+            },
+            keyframes: {
+              fadeIn: {
+                '0%': { opacity: '0' },
+                '100%': { opacity: '1' },
+              },
+              slideUp: {
+                '0%': { transform: 'translateY(10px)', opacity: '0' },
+                '100%': { transform: 'translateY(0)', opacity: '1' },
+              }
+            }
+          },
+        },
+        plugins: [
+          function({ addUtilities }) {
+            const newUtilities = {
+              '.writing-vertical-rl': {
+                'writing-mode': 'vertical-rl',
+              },
+            }
+            addUtilities(newUtilities)
+          }
+        ]
+      }
+    </script>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Merriweather:wght@300;400;700;900&family=Roboto+Mono:wght@400;500&display=swap');
+      body {
+        background-color: #ffffff;
+        margin: 0;
+        -webkit-font-smoothing: antialiased;
+      }
+      /* Sharp inputs for Nikkei style */
+      input, button, select, textarea {
+        border-radius: 0px !important;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>

@@ -19,7 +19,7 @@ export function InvoicePdfTemplate({ invoice, companyInfo }: InvoicePdfTemplateP
   };
 
   const company = companyInfo || defaultCompany;
-  const subtotal = invoice.lineItems.reduce((sum, item) => sum + item.amount, 0);
+  const subtotal = invoice.items.reduce((sum: number, item) => sum + item.amount, 0);
   const taxAmount = (subtotal * (invoice.taxRate || 0)) / 100;
   const total = subtotal + taxAmount;
 
@@ -186,7 +186,7 @@ export function InvoicePdfTemplate({ invoice, companyInfo }: InvoicePdfTemplateP
           </tr>
         </thead>
         <tbody>
-          {invoice.lineItems.map((item, index) => (
+          {invoice.items.map((item: any, index: number) => (
             <tr key={index}>
               <td style={{
                 padding: '8pt',
@@ -215,7 +215,7 @@ export function InvoicePdfTemplate({ invoice, companyInfo }: InvoicePdfTemplateP
             </tr>
           ))}
           {/* Empty rows for spacing */}
-          {Array.from({ length: Math.max(0, 5 - invoice.lineItems.length) }).map((_, i) => (
+          {Array.from({ length: Math.max(0, 5 - invoice.items.length) }).map((_, i) => (
             <tr key={`empty-${i}`}>
               <td style={{ padding: '8pt', border: '0.5pt solid #000000', height: '24pt' }}>&nbsp;</td>
               <td style={{ padding: '8pt', border: '0.5pt solid #000000' }}>&nbsp;</td>

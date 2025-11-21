@@ -1,0 +1,506 @@
+/**
+ * Database type definitions for Supabase
+ * Generated from DATABASE_SCHEMA.md
+ */
+
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[];
+
+export interface Database {
+  public: {
+    Tables: {
+      companies: {
+        Row: {
+          id: string;
+          name: string;
+          address: string | null;
+          tel: string | null;
+          email: string | null;
+          registration_no: string | null;
+          registered_office: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          address?: string | null;
+          tel?: string | null;
+          email?: string | null;
+          registration_no?: string | null;
+          registered_office?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          address?: string | null;
+          tel?: string | null;
+          email?: string | null;
+          registration_no?: string | null;
+          registered_office?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      accounts: {
+        Row: {
+          id: string;
+          company_id: string;
+          name: string;
+          type: 'main_bank' | 'petty_cash';
+          currency: 'MYR' | 'JPY';
+          country: 'Malaysia' | 'Japan';
+          bank_name: string | null;
+          account_number: string | null;
+          custodian: string | null;
+          initial_balance: number;
+          current_balance: number;
+          is_active: boolean;
+          metadata: Json | null;
+          notes: string | null;
+          created_at: string;
+          updated_at: string;
+          deleted_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          name: string;
+          type: 'main_bank' | 'petty_cash';
+          currency: 'MYR' | 'JPY';
+          country: 'Malaysia' | 'Japan';
+          bank_name?: string | null;
+          account_number?: string | null;
+          custodian?: string | null;
+          initial_balance?: number;
+          current_balance?: number;
+          is_active?: boolean;
+          metadata?: Json | null;
+          notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
+          deleted_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          company_id?: string;
+          name?: string;
+          type?: 'main_bank' | 'petty_cash';
+          currency?: 'MYR' | 'JPY';
+          country?: 'Malaysia' | 'Japan';
+          bank_name?: string | null;
+          account_number?: string | null;
+          custodian?: string | null;
+          initial_balance?: number;
+          current_balance?: number;
+          is_active?: boolean;
+          metadata?: Json | null;
+          notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
+          deleted_at?: string | null;
+        };
+      };
+      documents: {
+        Row: {
+          id: string;
+          company_id: string;
+          account_id: string | null;
+          document_type: 'invoice' | 'receipt' | 'payment_voucher' | 'statement_of_payment';
+          document_number: string;
+          status: 'draft' | 'issued' | 'paid' | 'completed' | 'cancelled';
+          document_date: string;
+          currency: 'MYR' | 'JPY';
+          country: 'Malaysia' | 'Japan';
+          amount: number;
+          subtotal: number | null;
+          tax_rate: number | null;
+          tax_amount: number | null;
+          total: number | null;
+          notes: string | null;
+          metadata: Json | null;
+          created_at: string;
+          updated_at: string;
+          deleted_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          account_id?: string | null;
+          document_type: 'invoice' | 'receipt' | 'payment_voucher' | 'statement_of_payment';
+          document_number: string;
+          status?: 'draft' | 'issued' | 'paid' | 'completed' | 'cancelled';
+          document_date: string;
+          currency: 'MYR' | 'JPY';
+          country: 'Malaysia' | 'Japan';
+          amount: number;
+          subtotal?: number | null;
+          tax_rate?: number | null;
+          tax_amount?: number | null;
+          total?: number | null;
+          notes?: string | null;
+          metadata?: Json | null;
+          created_at?: string;
+          updated_at?: string;
+          deleted_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          company_id?: string;
+          account_id?: string | null;
+          document_type?: 'invoice' | 'receipt' | 'payment_voucher' | 'statement_of_payment';
+          document_number?: string;
+          status?: 'draft' | 'issued' | 'paid' | 'completed' | 'cancelled';
+          document_date?: string;
+          currency?: 'MYR' | 'JPY';
+          country?: 'Malaysia' | 'Japan';
+          amount?: number;
+          subtotal?: number | null;
+          tax_rate?: number | null;
+          tax_amount?: number | null;
+          total?: number | null;
+          notes?: string | null;
+          metadata?: Json | null;
+          created_at?: string;
+          updated_at?: string;
+          deleted_at?: string | null;
+        };
+      };
+      invoices: {
+        Row: {
+          id: string;
+          document_id: string;
+          customer_name: string;
+          customer_address: string | null;
+          customer_email: string | null;
+          invoice_date: string;
+          due_date: string;
+          payment_terms: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          document_id: string;
+          customer_name: string;
+          customer_address?: string | null;
+          customer_email?: string | null;
+          invoice_date: string;
+          due_date: string;
+          payment_terms?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          document_id?: string;
+          customer_name?: string;
+          customer_address?: string | null;
+          customer_email?: string | null;
+          invoice_date?: string;
+          due_date?: string;
+          payment_terms?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      receipts: {
+        Row: {
+          id: string;
+          document_id: string;
+          linked_invoice_id: string | null;
+          payer_name: string;
+          payer_contact: string | null;
+          receipt_date: string;
+          payment_method: string;
+          received_by: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          document_id: string;
+          linked_invoice_id?: string | null;
+          payer_name: string;
+          payer_contact?: string | null;
+          receipt_date: string;
+          payment_method: string;
+          received_by: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          document_id?: string;
+          linked_invoice_id?: string | null;
+          payer_name?: string;
+          payer_contact?: string | null;
+          receipt_date?: string;
+          payment_method?: string;
+          received_by?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      payment_vouchers: {
+        Row: {
+          id: string;
+          document_id: string;
+          payee_name: string;
+          payee_address: string | null;
+          payee_bank_account: string | null;
+          payee_bank_name: string | null;
+          voucher_date: string;
+          payment_due_date: string | null;
+          requested_by: string;
+          approved_by: string | null;
+          approval_date: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          document_id: string;
+          payee_name: string;
+          payee_address?: string | null;
+          payee_bank_account?: string | null;
+          payee_bank_name?: string | null;
+          voucher_date: string;
+          payment_due_date?: string | null;
+          requested_by: string;
+          approved_by?: string | null;
+          approval_date?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          document_id?: string;
+          payee_name?: string;
+          payee_address?: string | null;
+          payee_bank_account?: string | null;
+          payee_bank_name?: string | null;
+          voucher_date?: string;
+          payment_due_date?: string | null;
+          requested_by?: string;
+          approved_by?: string | null;
+          approval_date?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      statements_of_payment: {
+        Row: {
+          id: string;
+          document_id: string;
+          linked_voucher_id: string;
+          payment_date: string;
+          payment_method: string;
+          transaction_reference: string;
+          transfer_proof_filename: string | null;
+          transfer_proof_base64: string | null;
+          confirmed_by: string;
+          payee_name: string;
+          transaction_fee: number;
+          transaction_fee_type: string | null;
+          total_deducted: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          document_id: string;
+          linked_voucher_id: string;
+          payment_date: string;
+          payment_method: string;
+          transaction_reference: string;
+          transfer_proof_filename?: string | null;
+          transfer_proof_base64?: string | null;
+          confirmed_by: string;
+          payee_name: string;
+          transaction_fee?: number;
+          transaction_fee_type?: string | null;
+          total_deducted: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          document_id?: string;
+          linked_voucher_id?: string;
+          payment_date?: string;
+          payment_method?: string;
+          transaction_reference?: string;
+          transfer_proof_filename?: string | null;
+          transfer_proof_base64?: string | null;
+          confirmed_by?: string;
+          payee_name?: string;
+          transaction_fee?: number;
+          transaction_fee_type?: string | null;
+          total_deducted?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      line_items: {
+        Row: {
+          id: string;
+          document_id: string;
+          line_number: number;
+          description: string;
+          quantity: number;
+          unit_price: number;
+          amount: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          document_id: string;
+          line_number: number;
+          description: string;
+          quantity?: number;
+          unit_price: number;
+          amount: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          document_id?: string;
+          line_number?: number;
+          description?: string;
+          quantity?: number;
+          unit_price?: number;
+          amount?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      transactions: {
+        Row: {
+          id: string;
+          account_id: string;
+          document_id: string;
+          transaction_type: 'increase' | 'decrease';
+          description: string;
+          amount: number;
+          balance_before: number;
+          balance_after: number;
+          metadata: Json | null;
+          transaction_date: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          account_id: string;
+          document_id: string;
+          transaction_type: 'increase' | 'decrease';
+          description: string;
+          amount: number;
+          balance_before: number;
+          balance_after: number;
+          metadata?: Json | null;
+          transaction_date?: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          account_id?: string;
+          document_id?: string;
+          transaction_type?: 'increase' | 'decrease';
+          description?: string;
+          amount?: number;
+          balance_before?: number;
+          balance_after?: number;
+          metadata?: Json | null;
+          transaction_date?: string;
+          created_at?: string;
+        };
+      };
+      document_counters: {
+        Row: {
+          id: string;
+          company_id: string;
+          document_type: string;
+          date_key: string;
+          counter: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          document_type: string;
+          date_key: string;
+          counter?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          company_id?: string;
+          document_type?: string;
+          date_key?: string;
+          counter?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      sessions: {
+        Row: {
+          id: string;
+          user_id: string;
+          token_hash: string;
+          refresh_token_hash: string | null;
+          device_info: Json | null;
+          last_activity: string;
+          expires_at: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          token_hash: string;
+          refresh_token_hash?: string | null;
+          device_info?: Json | null;
+          last_activity?: string;
+          expires_at: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          token_hash?: string;
+          refresh_token_hash?: string | null;
+          device_info?: Json | null;
+          last_activity?: string;
+          expires_at?: string;
+          created_at?: string;
+        };
+      };
+    };
+    Views: {
+      [_ in never]: never;
+    };
+    Functions: {
+      generate_document_number: {
+        Args: {
+          p_company_id: string;
+          p_document_type: string;
+        };
+        Returns: string;
+      };
+    };
+    Enums: {
+      [_ in never]: never;
+    };
+  };
+}

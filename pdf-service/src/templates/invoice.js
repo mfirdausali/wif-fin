@@ -23,7 +23,8 @@ function generateInvoiceHTML(invoice, companyInfo = {}) {
   // Use provided total or calculate it
   const total = invoice.total !== undefined ? invoice.total : (subtotal + taxAmount);
 
-  const emptyRows = Math.max(0, 5 - lineItems.length);
+  // Only add empty rows if there are few items (to maintain minimum table height)
+  const emptyRows = lineItems.length < 5 ? Math.max(0, 5 - lineItems.length) : 0;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -32,19 +33,18 @@ function generateInvoiceHTML(invoice, companyInfo = {}) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Invoice - ${invoice.documentNumber}</title>
     <style>
-        @page {
-            size: A4;
-            margin: 0.75in;
+        * {
+            box-sizing: border-box;
         }
 
         body {
-            font-family: 'Helvetica', 'Arial', sans-serif;
+            font-family: Arial, sans-serif;
             line-height: 1.4;
             color: #000000;
             background-color: white;
             margin: 0;
             padding: 0;
-            font-size: 11pt;
+            font-size: 10pt;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
         }
@@ -68,13 +68,13 @@ function generateInvoiceHTML(invoice, companyInfo = {}) {
             width: 100%;
             height: 2pt;
             background: #000000;
-            margin-bottom: 24pt;
+            margin-bottom: 16pt;
         }
 
         .header-section {
             display: table;
             width: 100%;
-            margin-bottom: 24pt;
+            margin-bottom: 16pt;
         }
 
         .header-left {
@@ -138,7 +138,7 @@ function generateInvoiceHTML(invoice, companyInfo = {}) {
         .amount-section {
             display: table;
             width: 100%;
-            margin-bottom: 18pt;
+            margin-bottom: 12pt;
         }
 
         .total-amount-box {
@@ -146,18 +146,18 @@ function generateInvoiceHTML(invoice, companyInfo = {}) {
             width: 50%;
             background: #e8e8e8;
             border: 1pt solid #000000;
-            padding: 12pt;
+            padding: 8pt;
             text-align: center;
             vertical-align: middle;
         }
 
         .amount-label {
-            font-size: 11pt;
-            margin-bottom: 6pt;
+            font-size: 10pt;
+            margin-bottom: 4pt;
         }
 
         .amount-value {
-            font-size: 20pt;
+            font-size: 16pt;
             font-weight: bold;
         }
 
@@ -197,20 +197,25 @@ function generateInvoiceHTML(invoice, companyInfo = {}) {
             border: 1pt solid #000000;
         }
 
+        .items-table thead {
+            display: table-header-group;
+        }
+
         .items-table th {
             background: #e8e8e8;
-            padding: 12pt 8pt;
+            padding: 8pt 6pt;
             border: 0.5pt solid #000000;
-            font-size: 11pt;
+            font-size: 10pt;
             font-weight: normal;
             text-align: center;
         }
 
         .items-table td {
-            padding: 8pt;
+            padding: 6pt 6pt;
             border: 0.5pt solid #000000;
-            font-size: 10pt;
+            font-size: 9pt;
             text-align: center;
+            line-height: 1.3;
         }
 
         .items-table .description-col {
@@ -222,6 +227,8 @@ function generateInvoiceHTML(invoice, companyInfo = {}) {
             border-left: 1pt solid #000000;
             border-right: 1pt solid #000000;
             border-bottom: 1pt solid #000000;
+            page-break-inside: avoid;
+            break-inside: avoid;
         }
 
         .totals-section table {
@@ -230,9 +237,9 @@ function generateInvoiceHTML(invoice, companyInfo = {}) {
         }
 
         .totals-section td {
-            padding: 8pt 12pt;
+            padding: 6pt 10pt;
             border-top: 0.5pt solid #000000;
-            font-size: 10pt;
+            font-size: 9pt;
             text-align: right;
         }
 

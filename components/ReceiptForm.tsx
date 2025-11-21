@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -26,7 +26,7 @@ export function ReceiptForm({ invoices, accounts, onSubmit, onCancel, initialDat
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
 
   const [formData, setFormData] = useState({
-    documentNumber: initialData?.documentNumber || DocumentNumberService.generateDocumentNumber('receipt'),
+    documentNumber: initialData?.documentNumber || '',
     payerName: initialData?.payerName || '',
     payerContact: initialData?.payerContact || '',
     receiptDate: initialData?.receiptDate || new Date().toISOString().split('T')[0],
@@ -39,6 +39,15 @@ export function ReceiptForm({ invoices, accounts, onSubmit, onCancel, initialDat
     accountId: initialData?.accountId || '',
     notes: initialData?.notes || '',
   });
+
+  // Generate document number from Supabase on mount
+  useEffect(() => {
+    if (!initialData) {
+      DocumentNumberService.generateDocumentNumberAsync('receipt')
+        .then(docNum => setFormData(prev => ({ ...prev, documentNumber: docNum })))
+        .catch(() => setFormData(prev => ({ ...prev, documentNumber: DocumentNumberService.generateDocumentNumber('receipt') })));
+    }
+  }, [initialData]);
 
   const handleInvoiceSelect = (invoiceId: string) => {
     const invoice = invoices.find(inv => inv.id === invoiceId);

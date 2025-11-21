@@ -22,16 +22,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../ui/select';
-import { Download, FileText, Search, Calendar, User, Activity } from 'lucide-react';
+import { Download, FileText, Search, Calendar, User, Activity, Loader2 } from 'lucide-react';
 import { ActivityLog as ActivityLogType, ActivityType, PublicUser } from '../../types/auth';
 
 interface ActivityLogProps {
   activities: ActivityLogType[];
   users: PublicUser[];
   onExport: (format: 'json' | 'csv') => void;
+  isLoading?: boolean;
 }
 
-export function ActivityLog({ activities, users, onExport }: ActivityLogProps) {
+export function ActivityLog({ activities, users, onExport, isLoading = false }: ActivityLogProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<ActivityType | 'all'>('all');
   const [userFilter, setUserFilter] = useState<string>('all');
@@ -257,7 +258,12 @@ export function ActivityLog({ activities, users, onExport }: ActivityLogProps) {
           {/* Activity List */}
           <ScrollArea className="h-[600px]">
             <div className="space-y-3">
-              {filteredActivities.length === 0 ? (
+              {isLoading ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <Loader2 className="w-12 h-12 text-gray-400 mb-3 animate-spin" />
+                  <p className="text-gray-500">Loading activity logs...</p>
+                </div>
+              ) : filteredActivities.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
                   <FileText className="w-12 h-12 text-gray-300 mb-3" />
                   <p className="text-gray-500">No activities found</p>

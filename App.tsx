@@ -11,8 +11,8 @@ import { Settings, CompanyInfo, saveCompanyInfo } from './components/Settings';
 import { Onboarding } from './components/Onboarding';
 import { LoginScreen } from './components/auth/LoginScreen';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { Document, DocumentType, Invoice, Receipt, PaymentVoucher, StatementOfPayment, Currency } from './types/document';
-import { Account, AccountType } from './types/account';
+import { Document, DocumentType, Invoice, Receipt, PaymentVoucher, StatementOfPayment } from './types/document';
+import { Account } from './types/account';
 import { LoginCredentials } from './types/auth';
 import { TransactionService } from './services/transactionService';
 import { logAuthEvent, logDocumentEvent } from './services/activityLogService';
@@ -26,105 +26,14 @@ import { toast } from 'sonner';
 import { Toaster } from './components/ui/sonner';
 import { Alert, AlertTitle, AlertDescription } from './components/ui/alert';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from './components/ui/alert-dialog';
+import * as SupabaseService from './services/supabaseService';
 
-const DOCUMENTS_STORAGE_KEY = 'malaysia_japan_documents';
-const ACCOUNTS_STORAGE_KEY = 'malaysia_japan_accounts';
 const ONBOARDING_STORAGE_KEY = 'wif_onboarding_completed';
-
-// Migration function to convert old documents to new format
-function migrateDocuments(documents: Document[]): Document[] {
-  console.log('Starting document migration...');
-  let migrationCount = 0;
-
-  // First pass: Migrate payment vouchers
-  const migratedDocs = documents.map(doc => {
-    // Migrate payment vouchers: add items array
-    if (doc.documentType === 'payment_voucher') {
-      const pv = doc as PaymentVoucher;
-
-      // Check if this is an old format voucher (has purpose but no items)
-      if (pv.purpose && (!pv.items || pv.items.length === 0)) {
-        console.log('✓ Migrating payment voucher:', pv.documentNumber);
-        migrationCount++;
-
-        // Convert old purpose into a single line item
-        return {
-          ...pv,
-          items: [{
-            id: '1',
-            description: pv.purpose,
-            quantity: 1,
-            unitPrice: pv.amount,
-            amount: pv.amount
-          }],
-          subtotal: pv.amount,
-          total: pv.amount,
-          // Keep purpose for backward compatibility
-          purpose: pv.purpose
-        } as PaymentVoucher;
-      }
-    }
-
-    return doc;
-  });
-
-  // Second pass: Migrate statements of payment (after vouchers are migrated)
-  const finalDocs = migratedDocs.map(doc => {
-    if (doc.documentType === 'statement_of_payment') {
-      const sop = doc as StatementOfPayment;
-      let needsMigration = false;
-      let updatedSop = { ...sop };
-
-      // Check if linkedVoucherNumber is missing or is an internal ID
-      if (sop.linkedVoucherId && (!sop.linkedVoucherNumber || sop.linkedVoucherNumber.startsWith('DOC-'))) {
-        console.log('✓ Migrating statement of payment linkedVoucherNumber:', sop.documentNumber, 'LinkedVoucherId:', sop.linkedVoucherId);
-
-        // Find the linked voucher to get its document number
-        const linkedVoucher = migratedDocs.find(d => d.id === sop.linkedVoucherId) as PaymentVoucher;
-
-        if (linkedVoucher) {
-          console.log('  → Found linked voucher:', linkedVoucher.documentNumber);
-          updatedSop.linkedVoucherNumber = linkedVoucher.documentNumber;
-          needsMigration = true;
-        } else {
-          console.warn('  ⚠ Could not find linked voucher with ID:', sop.linkedVoucherId);
-        }
-      }
-
-      // Check if items are missing
-      if (!sop.items || sop.items.length === 0) {
-        console.log('✓ Migrating statement of payment items:', sop.documentNumber);
-
-        // Find the linked voucher to get its items
-        const linkedVoucher = migratedDocs.find(d => d.id === sop.linkedVoucherId) as PaymentVoucher;
-
-        if (linkedVoucher && linkedVoucher.items && linkedVoucher.items.length > 0) {
-          console.log('  → Adding items from linked voucher');
-          updatedSop.items = linkedVoucher.items;
-          updatedSop.subtotal = linkedVoucher.subtotal;
-          updatedSop.taxRate = linkedVoucher.taxRate;
-          updatedSop.taxAmount = linkedVoucher.taxAmount;
-          updatedSop.total = linkedVoucher.total;
-          needsMigration = true;
-        }
-      }
-
-      if (needsMigration) {
-        migrationCount++;
-        return updatedSop as StatementOfPayment;
-      }
-    }
-
-    return doc;
-  });
-
-  console.log(`Migration complete. ${migrationCount} document(s) migrated.`);
-  return finalDocs;
-}
 
 // Main app content (requires authentication)
 function AppContent() {
   const { user, logout } = useAuth();
+  const [companyId, setCompanyId] = useState<string | null>(null);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedType, setSelectedType] = useState<DocumentType | null>(null);
@@ -133,7 +42,7 @@ function AppContent() {
   const [showSettings, setShowSettings] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
 
-  // Track if data has been loaded from storage to prevent overwriting on mount
+  // Track if data has been loaded from Supabase to prevent overwriting on mount
   const [dataLoaded, setDataLoaded] = useState(false);
 
   // Handle logout
@@ -145,175 +54,35 @@ function AppContent() {
     toast.info('Logged out successfully');
   };
 
-  // Load documents from localStorage on mount
+  // Initialize company and load data from Supabase on mount
   useEffect(() => {
-    console.log('=== Loading Data from LocalStorage ===');
-    const stored = localStorage.getItem(DOCUMENTS_STORAGE_KEY);
-    if (stored) {
+    async function loadData() {
       try {
-        const loadedDocs = JSON.parse(stored);
-        console.log('Loaded documents from storage:', loadedDocs.length);
+        // Get or create default company
+        const company = await SupabaseService.getOrCreateDefaultCompany();
+        setCompanyId(company.id);
 
-        // Migrate old documents (payment vouchers and statements of payment)
-        const migratedDocs = migrateDocuments(loadedDocs);
-        setDocuments(migratedDocs);
+        // Load documents and accounts in parallel
+        const [loadedDocs, loadedAccounts] = await Promise.all([
+          SupabaseService.getDocuments(company.id),
+          SupabaseService.getAccounts(company.id)
+        ]);
 
-        // Always save after migration to ensure changes persist
-        localStorage.setItem(DOCUMENTS_STORAGE_KEY, JSON.stringify(migratedDocs));
-        console.log('✓ Documents saved to localStorage');
+        setDocuments(loadedDocs);
+        setAccounts(loadedAccounts);
+        setDataLoaded(true);
       } catch (error) {
-        console.error('Failed to load documents:', error);
+        console.error('Failed to load data:', error);
+        toast.error('Failed to load data', {
+          description: error instanceof Error ? error.message : 'Unknown error'
+        });
+        setDataLoaded(true); // Still mark as loaded to prevent blocking UI
       }
     }
+
+    loadData();
   }, []);
 
-  // Load accounts from localStorage on mount
-  useEffect(() => {
-    const stored = localStorage.getItem(ACCOUNTS_STORAGE_KEY);
-    let loadedAccounts: Account[] = [];
-
-    if (stored) {
-      try {
-        loadedAccounts = JSON.parse(stored);
-        console.log('Loaded accounts from storage:', loadedAccounts.length);
-      } catch (error) {
-        console.error('Failed to load accounts:', error);
-      }
-    }
-
-    // Auto-recover accounts if missing but documents reference them
-    if (loadedAccounts.length === 0 && documents.some(doc => doc.accountId)) {
-      console.log('=== Auto-recovering Accounts from Documents ===');
-
-      // Find all unique account IDs and names from documents
-      const accountMap = new Map<string, { id: string; name: string; currency: Currency; country: 'Malaysia' | 'Japan' }>();
-
-      documents.forEach(doc => {
-        if (doc.accountId && doc.accountName) {
-          if (!accountMap.has(doc.accountId)) {
-            accountMap.set(doc.accountId, {
-              id: doc.accountId,
-              name: doc.accountName,
-              currency: doc.currency,
-              country: doc.country,
-            });
-          }
-        }
-      });
-
-      if (accountMap.size > 0) {
-        // Create recovered accounts with inferred initial balances
-        const recoveredAccounts: Account[] = Array.from(accountMap.values()).map(info => ({
-          id: info.id,
-          name: info.name,
-          type: 'main_bank' as AccountType,
-          currency: info.currency,
-          country: info.country,
-          initialBalance: 0,
-          currentBalance: 0,
-          isActive: true,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        }));
-
-        // Calculate net change from all transactions for each account
-        const accountNetChanges = new Map<string, number>();
-
-        documents.forEach(doc => {
-          if (doc.accountId && TransactionService.shouldAffectAccount(doc)) {
-            const netChange = accountNetChanges.get(doc.accountId) || 0;
-            const balanceChange = TransactionService.calculateBalanceChange(doc);
-            accountNetChanges.set(doc.accountId, netChange + balanceChange);
-            console.log(`Transaction: ${doc.documentType} ${doc.documentNumber}: ${balanceChange > 0 ? '+' : ''}${balanceChange}`);
-          }
-        });
-
-        // For each recovered account, infer initial balance
-        recoveredAccounts.forEach(acc => {
-          const netChange = accountNetChanges.get(acc.id) || 0;
-
-          // Try to find the first document to infer when account was created
-          const firstDoc = documents
-            .filter(d => d.accountId === acc.id)
-            .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0];
-
-          if (firstDoc) {
-            // If first document is a receipt, assume it was added to an existing balance
-            // If first document is a payment, the initial balance must have been higher
-            // For simplicity, we'll just set initial balance to make current balance match the last transaction
-
-            // Find the last completed transaction balance
-            const completedDocs = documents
-              .filter(doc => doc.accountId === acc.id && TransactionService.shouldAffectAccount(doc))
-              .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-
-            if (completedDocs.length > 0) {
-              // Infer that the initial balance should make the math work out
-              // currentBalance = initialBalance + netChange
-              // Therefore: initialBalance = currentBalance - netChange
-              // But we need to get currentBalance from somewhere...
-
-              // Actually, let's just set initialBalance = 0 and currentBalance = netChange
-              // This is safer than guessing
-              acc.initialBalance = 0;
-              acc.currentBalance = netChange;
-              console.log(`Account ${acc.name}: initial=0, net=${netChange}, current=${acc.currentBalance}`);
-            }
-          }
-        });
-
-        loadedAccounts = recoveredAccounts;
-        console.log('✓ Auto-recovered accounts:', recoveredAccounts.length);
-        toast.warning('Accounts recovered with estimated balances', {
-          description: 'Please verify balances are correct. Initial balances set to 0.',
-        });
-      }
-    }
-
-    // Validate and fix account balances
-    if (loadedAccounts.length > 0) {
-      console.log('=== Validating Account Balances ===');
-      let balancesFixed = false;
-
-      loadedAccounts.forEach(acc => {
-        // Calculate what the balance should be based on transactions
-        let calculatedBalance = acc.initialBalance;
-
-        documents.forEach(doc => {
-          if (doc.accountId === acc.id && TransactionService.shouldAffectAccount(doc)) {
-            const balanceChange = TransactionService.calculateBalanceChange(doc);
-            calculatedBalance += balanceChange;
-          }
-        });
-
-        // Check if current balance matches calculated balance
-        if (Math.abs(acc.currentBalance - calculatedBalance) > 0.01) {
-          console.log(`⚠ Balance mismatch for ${acc.name}:`);
-          console.log(`  Stored: ${acc.currentBalance}`);
-          console.log(`  Calculated: ${calculatedBalance}`);
-          console.log(`  Fixing...`);
-
-          acc.currentBalance = calculatedBalance;
-          acc.updatedAt = new Date().toISOString();
-          balancesFixed = true;
-        } else {
-          console.log(`✓ ${acc.name} balance correct: ${acc.currentBalance}`);
-        }
-      });
-
-      if (balancesFixed) {
-        toast.success('Account balances corrected', {
-          description: 'Balances have been recalculated to match transactions',
-        });
-      }
-    }
-
-    setAccounts(loadedAccounts);
-
-    // Mark data as loaded after attempting to load both documents and accounts
-    setDataLoaded(true);
-    console.log('✓ Data loading complete');
-  }, [documents]);
 
   // Check if onboarding should be shown
   useEffect(() => {
@@ -331,26 +100,15 @@ function AppContent() {
     }
   }, [dataLoaded, documents.length, accounts.length]);
 
-  // Save documents to localStorage whenever they change (after initial load)
-  useEffect(() => {
-    if (dataLoaded) {
-      localStorage.setItem(DOCUMENTS_STORAGE_KEY, JSON.stringify(documents));
-      console.log('Documents saved to localStorage:', documents.length, 'documents');
-    }
-  }, [documents, dataLoaded]);
-
-  // Save accounts to localStorage whenever they change (after initial load)
-  useEffect(() => {
-    if (dataLoaded) {
-      localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(accounts));
-      console.log('Accounts saved to localStorage:', accounts.length, 'accounts');
-    }
-  }, [accounts, dataLoaded]);
-
-  const handleDocumentCreated = (document: Document) => {
+  const handleDocumentCreated = async (document: Document) => {
     // If editing, update the existing document
     if (editingDocument) {
-      handleDocumentUpdated(document);
+      await handleDocumentUpdated(document);
+      return;
+    }
+
+    if (!companyId) {
+      toast.error('Company not initialized');
       return;
     }
 
@@ -367,81 +125,77 @@ function AppContent() {
       }
     }
 
-    // Add document to list
-    setDocuments(prev => [...prev, document]);
+    try {
+      // Save document to Supabase
+      const createdDoc = await SupabaseService.createDocument(companyId, document);
+      console.log('✓ Document created in Supabase:', createdDoc.id);
 
-    // Update account balances using Transaction Service
-    if (document.accountId && TransactionService.shouldAffectAccount(document)) {
-      console.log('=== Applying Transaction ===');
-      console.log('Document:', document.documentType, document.documentNumber);
-      console.log('Account ID:', document.accountId);
-      console.log('Amount:', document.amount);
-      if (document.documentType === 'statement_of_payment') {
-        console.log('Total Deducted:', document.totalDeducted);
+      // Add document to local state
+      setDocuments(prev => [...prev, createdDoc]);
+
+      // Update account balances using Transaction Service
+      if (createdDoc.accountId && TransactionService.shouldAffectAccount(createdDoc)) {
+        console.log('=== Applying Transaction ===');
+        console.log('Document:', createdDoc.documentType, createdDoc.documentNumber);
+        console.log('Account ID:', createdDoc.accountId);
+        console.log('Amount:', createdDoc.amount);
+
+        const accountToUpdate = accounts.find(acc => acc.id === createdDoc.accountId);
+        if (accountToUpdate) {
+          const updatedAccount = TransactionService.applyTransaction(accountToUpdate, createdDoc);
+          await SupabaseService.updateAccount(updatedAccount.id, { currentBalance: updatedAccount.currentBalance });
+          console.log('✓ Account balance updated in Supabase');
+
+          setAccounts(prev => prev.map(acc =>
+            acc.id === updatedAccount.id ? updatedAccount : acc
+          ));
+        }
       }
-      console.log('Should affect account:', TransactionService.shouldAffectAccount(document));
 
-      setAccounts(prev => {
-        const updated = prev.map(acc => {
-          if (acc.id === document.accountId) {
-            console.log('Before balance:', acc.currentBalance);
-            const newAcc = TransactionService.applyTransaction(acc, document);
-            console.log('After balance:', newAcc.currentBalance);
-            console.log('Balance change:', newAcc.currentBalance - acc.currentBalance);
-            return newAcc;
-          }
-          return acc;
-        });
-        console.log('Updated accounts:', updated);
-        return updated;
+      // Update related documents
+      if (createdDoc.documentType === 'receipt' && createdDoc.linkedInvoiceId) {
+        // Mark invoice as paid
+        await SupabaseService.updateDocument(createdDoc.linkedInvoiceId, { status: 'paid' });
+        setDocuments(prev => prev.map(doc =>
+          doc.id === createdDoc.linkedInvoiceId ? { ...doc, status: 'paid' as const } : doc
+        ));
+      }
+
+      if (createdDoc.documentType === 'statement_of_payment') {
+        // Mark payment voucher as completed
+        await SupabaseService.updateDocument(createdDoc.linkedVoucherId, { status: 'completed' });
+        setDocuments(prev => prev.map(doc =>
+          doc.id === createdDoc.linkedVoucherId ? { ...doc, status: 'completed' as const } : doc
+        ));
+      }
+
+      const typeLabels = {
+        invoice: 'Invoice',
+        receipt: 'Receipt',
+        payment_voucher: 'Payment Voucher',
+        statement_of_payment: 'Statement of Payment',
+      };
+
+      toast.success(`${typeLabels[createdDoc.documentType]} created successfully`, {
+        description: `${createdDoc.documentNumber} - ${createdDoc.currency} ${createdDoc.amount.toFixed(2)}`,
       });
-    } else {
-      console.log('=== Transaction NOT Applied ===');
-      console.log('Document:', document.documentType, document.documentNumber);
-      console.log('Has account ID:', !!document.accountId);
-      console.log('Should affect account:', TransactionService.shouldAffectAccount(document));
+
+      // Log activity
+      if (user) {
+        logDocumentEvent('document:created', user, createdDoc);
+      }
+
+      setSelectedType(null);
+      setEditingDocument(null);
+    } catch (error) {
+      console.error('Error creating document:', error);
+      toast.error('Failed to create document', {
+        description: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
-
-    // Update related documents
-    if (document.documentType === 'receipt' && document.linkedInvoiceId) {
-      // Mark invoice as paid
-      setDocuments(prev => prev.map(doc =>
-        doc.id === document.linkedInvoiceId && doc.documentType === 'invoice'
-          ? { ...doc, status: 'paid' as const }
-          : doc
-      ));
-    }
-
-    if (document.documentType === 'statement_of_payment') {
-      // Mark payment voucher as completed
-      setDocuments(prev => prev.map(doc =>
-        doc.id === document.linkedVoucherId && doc.documentType === 'payment_voucher'
-          ? { ...doc, status: 'completed' as const }
-          : doc
-      ));
-    }
-
-    const typeLabels = {
-      invoice: 'Invoice',
-      receipt: 'Receipt',
-      payment_voucher: 'Payment Voucher',
-      statement_of_payment: 'Statement of Payment',
-    };
-
-    toast.success(`${typeLabels[document.documentType]} created successfully`, {
-      description: `${document.documentNumber} - ${document.currency} ${document.amount.toFixed(2)}`,
-    });
-
-    // Log activity
-    if (user) {
-      logDocumentEvent('document:created', user, document);
-    }
-
-    setSelectedType(null);
-    setEditingDocument(null);
   };
 
-  const handleDocumentUpdated = (updatedDocument: Document) => {
+  const handleDocumentUpdated = async (updatedDocument: Document) => {
     if (!editingDocument) return;
 
     // Validate transaction if updated document affects accounts
@@ -457,48 +211,86 @@ function AppContent() {
       }
     }
 
-    // Update account balances - reverse old and apply new using Transaction Service
-    if (editingDocument.accountId || updatedDocument.accountId) {
-      setAccounts(prev => prev.map(acc => {
-        let updatedAcc = acc;
+    try {
+      // Update account balances - reverse old and apply new using Transaction Service
+      if (editingDocument.accountId || updatedDocument.accountId) {
+        const accountsToUpdate: Account[] = [];
 
-        // Reverse old document's effect
-        if (acc.id === editingDocument.accountId && TransactionService.shouldAffectAccount(editingDocument)) {
-          updatedAcc = TransactionService.reverseTransaction(updatedAcc, editingDocument);
+        accounts.forEach(acc => {
+          let updatedAcc = acc;
+
+          // Reverse old document's effect
+          if (acc.id === editingDocument.accountId && TransactionService.shouldAffectAccount(editingDocument)) {
+            updatedAcc = TransactionService.reverseTransaction(updatedAcc, editingDocument);
+          }
+
+          // Apply new document's effect
+          if (updatedAcc.id === updatedDocument.accountId && TransactionService.shouldAffectAccount(updatedDocument)) {
+            updatedAcc = TransactionService.applyTransaction(updatedAcc, updatedDocument);
+          }
+
+          if (updatedAcc !== acc) {
+            accountsToUpdate.push(updatedAcc);
+          }
+        });
+
+        // Update accounts in Supabase
+        await Promise.all(
+          accountsToUpdate.map(acc =>
+            SupabaseService.updateAccount(acc.id, { currentBalance: acc.currentBalance })
+          )
+        );
+
+        setAccounts(prev => prev.map(acc => {
+          const updated = accountsToUpdate.find(u => u.id === acc.id);
+          return updated || acc;
+        }));
+      }
+
+      // Update the document in Supabase
+      const updatedInSupabase = await SupabaseService.updateDocument(editingDocument.id, updatedDocument);
+
+      if (updatedInSupabase) {
+        console.log('✓ Document updated in Supabase');
+      } else {
+        // Document doesn't exist in Supabase (legacy localStorage data)
+        // Create it instead
+        console.log('Document not found in Supabase, creating new...');
+        if (companyId) {
+          await SupabaseService.createDocument(companyId, { ...updatedDocument, id: editingDocument.id });
+          console.log('✓ Document created in Supabase');
         }
+      }
 
-        // Apply new document's effect
-        if (updatedAcc.id === updatedDocument.accountId && TransactionService.shouldAffectAccount(updatedDocument)) {
-          updatedAcc = TransactionService.applyTransaction(updatedAcc, updatedDocument);
-        }
+      // Update the document in local state
+      setDocuments(prev => prev.map(doc =>
+        doc.id === editingDocument.id ? { ...updatedDocument, id: editingDocument.id, updatedAt: new Date().toISOString() } : doc
+      ));
 
-        return updatedAcc;
-      }));
+      const typeLabels = {
+        invoice: 'Invoice',
+        receipt: 'Receipt',
+        payment_voucher: 'Payment Voucher',
+        statement_of_payment: 'Statement of Payment',
+      };
+
+      toast.success(`${typeLabels[updatedDocument.documentType]} updated successfully`, {
+        description: `${updatedDocument.documentNumber}`,
+      });
+
+      // Log activity
+      if (user) {
+        logDocumentEvent('document:updated', user, updatedDocument);
+      }
+
+      setSelectedType(null);
+      setEditingDocument(null);
+    } catch (error) {
+      console.error('Error updating document:', error);
+      toast.error('Failed to update document', {
+        description: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
-
-    // Update the document in the list
-    setDocuments(prev => prev.map(doc =>
-      doc.id === editingDocument.id ? { ...updatedDocument, id: editingDocument.id, updatedAt: new Date().toISOString() } : doc
-    ));
-
-    const typeLabels = {
-      invoice: 'Invoice',
-      receipt: 'Receipt',
-      payment_voucher: 'Payment Voucher',
-      statement_of_payment: 'Statement of Payment',
-    };
-
-    toast.success(`${typeLabels[updatedDocument.documentType]} updated successfully`, {
-      description: `${updatedDocument.documentNumber}`,
-    });
-
-    // Log activity
-    if (user) {
-      logDocumentEvent('document:updated', user, updatedDocument);
-    }
-
-    setSelectedType(null);
-    setEditingDocument(null);
   };
 
   const handleExport = () => {
@@ -513,17 +305,42 @@ function AppContent() {
     toast.success('Documents exported successfully');
   };
 
-  const handleAddAccount = (account: Account) => {
-    setAccounts(prev => [...prev, account]);
-    toast.success('Account added successfully', {
-      description: `${account.name} - ${account.currency}`,
-    });
+  const handleAddAccount = async (account: Account) => {
+    if (!companyId) {
+      toast.error('Company not initialized');
+      return;
+    }
+
+    try {
+      const createdAccount = await SupabaseService.createAccount(companyId, account);
+      console.log('✓ Account created in Supabase:', createdAccount.id);
+
+      setAccounts(prev => [...prev, createdAccount]);
+      toast.success('Account added successfully', {
+        description: `${account.name} - ${account.currency}`,
+      });
+    } catch (error) {
+      console.error('Error creating account:', error);
+      toast.error('Failed to create account', {
+        description: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
   };
 
-  const handleClearAll = () => {
-    setDocuments([]);
-    localStorage.removeItem(DOCUMENTS_STORAGE_KEY);
-    toast.info('All documents cleared');
+  const handleClearAll = async () => {
+    try {
+      // Delete all documents from Supabase
+      await Promise.all(documents.map(doc => SupabaseService.deleteDocument(doc.id)));
+      console.log('✓ All documents deleted from Supabase');
+
+      setDocuments([]);
+      toast.info('All documents cleared');
+    } catch (error) {
+      console.error('Error clearing documents:', error);
+      toast.error('Failed to clear documents', {
+        description: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
   };
 
   const handleEditDocument = (document: Document) => {
@@ -538,7 +355,7 @@ function AppContent() {
     setSelectedType(document.documentType);
   };
 
-  const handleDeleteDocument = (documentId: string) => {
+  const handleDeleteDocument = async (documentId: string) => {
     const docToDelete = documents.find(doc => doc.id === documentId);
     if (!docToDelete) return;
 
@@ -550,52 +367,64 @@ function AppContent() {
       return;
     }
 
-    // Update account balance if document affected accounts (using Transaction Service)
-    if (docToDelete.accountId && TransactionService.shouldAffectAccount(docToDelete)) {
-      setAccounts(prev => prev.map(acc => {
-        if (acc.id === docToDelete.accountId) {
-          return TransactionService.reverseTransaction(acc, docToDelete);
+    try {
+      // Update account balance if document affected accounts (using Transaction Service)
+      if (docToDelete.accountId && TransactionService.shouldAffectAccount(docToDelete)) {
+        const accountToUpdate = accounts.find(acc => acc.id === docToDelete.accountId);
+        if (accountToUpdate) {
+          const updatedAccount = TransactionService.reverseTransaction(accountToUpdate, docToDelete);
+          await SupabaseService.updateAccount(updatedAccount.id, { currentBalance: updatedAccount.currentBalance });
+
+          setAccounts(prev => prev.map(acc =>
+            acc.id === updatedAccount.id ? updatedAccount : acc
+          ));
         }
-        return acc;
-      }));
-    }
+      }
 
-    // Update related documents
-    if (docToDelete.documentType === 'receipt' && docToDelete.linkedInvoiceId) {
-      // Mark invoice back to issued status
-      setDocuments(prev => prev.map(doc =>
-        doc.id === docToDelete.linkedInvoiceId && doc.documentType === 'invoice'
-          ? { ...doc, status: 'issued' as const }
-          : doc
-      ));
-    }
+      // Update related documents
+      if (docToDelete.documentType === 'receipt' && docToDelete.linkedInvoiceId) {
+        // Mark invoice back to issued status
+        await SupabaseService.updateDocument(docToDelete.linkedInvoiceId, { status: 'issued' });
+        setDocuments(prev => prev.map(doc =>
+          doc.id === docToDelete.linkedInvoiceId ? { ...doc, status: 'issued' as const } : doc
+        ));
+      }
 
-    if (docToDelete.documentType === 'statement_of_payment' && docToDelete.linkedVoucherId) {
-      // Mark payment voucher back to issued status
-      setDocuments(prev => prev.map(doc =>
-        doc.id === docToDelete.linkedVoucherId && doc.documentType === 'payment_voucher'
-          ? { ...doc, status: 'issued' as const }
-          : doc
-      ));
-    }
+      if (docToDelete.documentType === 'statement_of_payment' && docToDelete.linkedVoucherId) {
+        // Mark payment voucher back to issued status
+        await SupabaseService.updateDocument(docToDelete.linkedVoucherId, { status: 'issued' });
+        setDocuments(prev => prev.map(doc =>
+          doc.id === docToDelete.linkedVoucherId ? { ...doc, status: 'issued' as const } : doc
+        ));
+      }
 
-    // Delete the document
-    setDocuments(prev => prev.filter(doc => doc.id !== documentId));
+      // Delete the document from Supabase
+      await SupabaseService.deleteDocument(documentId);
+      console.log('✓ Document deleted from Supabase');
 
-    const typeLabels = {
-      invoice: 'Invoice',
-      receipt: 'Receipt',
-      payment_voucher: 'Payment Voucher',
-      statement_of_payment: 'Statement of Payment',
-    };
+      // Delete from local state
+      setDocuments(prev => prev.filter(doc => doc.id !== documentId));
 
-    toast.success(`${typeLabels[docToDelete.documentType]} deleted`, {
-      description: docToDelete.documentNumber,
-    });
+      const typeLabels = {
+        invoice: 'Invoice',
+        receipt: 'Receipt',
+        payment_voucher: 'Payment Voucher',
+        statement_of_payment: 'Statement of Payment',
+      };
 
-    // Log activity
-    if (user) {
-      logDocumentEvent('document:deleted', user, docToDelete);
+      toast.success(`${typeLabels[docToDelete.documentType]} deleted`, {
+        description: docToDelete.documentNumber,
+      });
+
+      // Log activity
+      if (user) {
+        logDocumentEvent('document:deleted', user, docToDelete);
+      }
+    } catch (error) {
+      console.error('Error deleting document:', error);
+      toast.error('Failed to delete document', {
+        description: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   };
 

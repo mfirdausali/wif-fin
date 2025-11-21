@@ -26,6 +26,11 @@ import {
   DEFAULT_SECURITY_SETTINGS,
   SecuritySettings,
 } from '../types/auth';
+import {
+  createSession as createServerSession,
+  revokeSession,
+  getDeviceInfo,
+} from './sessionService';
 
 // ============================================================================
 // STORAGE KEYS
@@ -249,10 +254,10 @@ export function updateSecuritySettings(settings: Partial<SecuritySettings>): voi
 /**
  * Login a user
  */
-export function login(
+export async function login(
   credentials: LoginCredentials,
   users: User[]
-): LoginResponse {
+): Promise<LoginResponse> {
   const { usernameOrEmail, password, rememberMe = false } = credentials;
 
   // Find user by username or email (case-insensitive)
@@ -304,7 +309,7 @@ export function login(
     };
   }
 
-  // Success! Create session
+  // Success! Create server-side session
   const publicUser: PublicUser = {
     id: user.id,
     username: user.username,
@@ -318,19 +323,69 @@ export function login(
     updatedAt: user.updatedAt,
   };
 
-  const session = createSession(publicUser, rememberMe);
-  saveSession(session);
+  try {
+    // Create server-side session
+    const deviceInfo = getDeviceInfo();
+    const sessionToken = await createServerSession(user.id, deviceInfo);
 
-  return {
-    success: true,
-    session,
-  };
+    // Store session data in localStorage
+    const settings = getSecuritySettings();
+    const expiresAt = new Date();
+
+    if (rememberMe) {
+      expiresAt.setDate(expiresAt.getDate() + settings.rememberMeTimeoutDays);
+    } else {
+      expiresAt.setMinutes(expiresAt.getMinutes() + settings.sessionTimeoutMinutes);
+    }
+
+    const session: AuthSession = {
+      user: publicUser,
+      token: sessionToken.token,
+      createdAt: new Date().toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      rememberMe,
+    };
+
+    // Also store refresh token
+    const sessionData = {
+      ...session,
+      refreshToken: sessionToken.refreshToken,
+    };
+
+    localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(sessionData));
+
+    return {
+      success: true,
+      session,
+    };
+  } catch (error) {
+    console.error('Failed to create server-side session:', error);
+    return {
+      success: false,
+      error: 'Failed to create session. Please try again.',
+      errorCode: 'SESSION_ERROR',
+    };
+  }
 }
 
 /**
  * Logout current user
  */
-export function logout(): void {
+export async function logout(): Promise<void> {
+  // Get session token before clearing
+  const session = getSession();
+
+  if (session) {
+    try {
+      // Revoke server-side session
+      await revokeSession(session.token);
+    } catch (error) {
+      console.error('Failed to revoke server-side session:', error);
+      // Continue with client-side logout even if server-side fails
+    }
+  }
+
+  // Clear client-side session
   clearSession();
 }
 
@@ -427,6 +482,7 @@ export function handleFailedLogin(user: User): User {
     const lockedUntil = new Date();
     lockedUntil.setMinutes(lockedUntil.getMinutes() + settings.lockoutDurationMinutes);
 
+    // Note: Caller should update this in Supabase using updateUserLoginAttempts
     return {
       ...user,
       failedLoginAttempts: failedAttempts,
@@ -435,6 +491,7 @@ export function handleFailedLogin(user: User): User {
     };
   }
 
+  // Note: Caller should update this in Supabase using updateUserLoginAttempts
   return {
     ...user,
     failedLoginAttempts: failedAttempts,
@@ -447,6 +504,7 @@ export function handleFailedLogin(user: User): User {
  * Returns updated user with reset failed attempts and updated last login
  */
 export function handleSuccessfulLogin(user: User): User {
+  // Note: Caller should update this in Supabase using updateUserLastLogin
   return {
     ...user,
     failedLoginAttempts: 0,

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -32,7 +32,7 @@ export function PaymentVoucherForm({ accounts, onSubmit, onCancel, initialData }
   );
 
   const [formData, setFormData] = useState({
-    documentNumber: initialData?.documentNumber || DocumentNumberService.generateDocumentNumber('payment_voucher'),
+    documentNumber: initialData?.documentNumber || '',
     voucherDate: initialData?.voucherDate || new Date().toISOString().split('T')[0],
     payeeName: initialData?.payeeName || '',
     payeeAddress: initialData?.payeeAddress || '',
@@ -48,6 +48,15 @@ export function PaymentVoucherForm({ accounts, onSubmit, onCancel, initialData }
     taxRate: initialData?.taxRate?.toString() || '',
     notes: initialData?.notes || '',
   });
+
+  // Generate document number from Supabase on mount
+  useEffect(() => {
+    if (!initialData) {
+      DocumentNumberService.generateDocumentNumberAsync('payment_voucher')
+        .then(docNum => setFormData(prev => ({ ...prev, documentNumber: docNum })))
+        .catch(() => setFormData(prev => ({ ...prev, documentNumber: DocumentNumberService.generateDocumentNumber('payment_voucher') })));
+    }
+  }, [initialData]);
 
   const addItem = () => {
     setItems([...items, {
@@ -261,7 +270,7 @@ export function PaymentVoucherForm({ accounts, onSubmit, onCancel, initialData }
                 Add Item
               </Button>
             </div>
-            {items.map((item, index) => (
+            {items.map((item, _index) => (
               <div key={item.id} className="grid grid-cols-12 gap-2 items-end p-3 bg-gray-50 rounded-lg">
                 <div className="col-span-5 space-y-2">
                   <Label>Description</Label>

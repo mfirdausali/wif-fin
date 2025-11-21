@@ -13,7 +13,7 @@
 
 import { PublicUser, Permission, UserRole } from '../types/auth';
 import { Document, DocumentStatus } from '../types/document';
-import { hasPermission, hasAllPermissions, hasAnyPermission } from '../services/userService';
+import { hasPermission } from '../services/userService';
 
 // ============================================================================
 // DOCUMENT PERMISSIONS
@@ -42,20 +42,22 @@ export function canEditDocument(user: PublicUser, document: Document): boolean {
     return false;
   }
 
-  // Cannot edit completed or cancelled documents
+  // Admins can edit any document including completed/cancelled
+  if (user.role === 'admin') {
+    return true;
+  }
+
+  // Non-admins cannot edit completed or cancelled documents
   if (document.status === 'completed' || document.status === 'cancelled') {
     return false;
   }
 
   // Accountants can only edit their own draft documents
   if (user.role === 'accountant') {
-    // Once we add createdBy to documents, check:
-    // return document.status === 'draft' && document.createdBy?.id === user.id;
-    // For now, accountants can edit draft documents
     return document.status === 'draft';
   }
 
-  // Managers and admins can edit any non-completed document
+  // Managers can edit any non-completed document
   return true;
 }
 
@@ -68,12 +70,17 @@ export function canDeleteDocument(user: PublicUser, document: Document): boolean
     return false;
   }
 
-  // Cannot delete completed documents (business rule: maintain audit trail)
+  // Admins can delete any document including completed
+  if (user.role === 'admin') {
+    return true;
+  }
+
+  // Non-admins cannot delete completed documents (business rule: maintain audit trail)
   if (document.status === 'completed') {
     return false;
   }
 
-  // Managers and admins can delete non-completed documents
+  // Managers can delete non-completed documents
   return true;
 }
 
@@ -206,7 +213,7 @@ export function canActivateUsers(user: PublicUser): boolean {
 /**
  * Check if user can edit their own profile
  */
-export function canEditOwnProfile(user: PublicUser): boolean {
+export function canEditOwnProfile(_user: PublicUser): boolean {
   // Everyone can edit their own profile
   return true;
 }

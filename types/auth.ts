@@ -250,7 +250,7 @@ export interface LoginResponse {
   success: boolean;
   session?: AuthSession;
   error?: string;
-  errorCode?: 'INVALID_CREDENTIALS' | 'ACCOUNT_LOCKED' | 'ACCOUNT_INACTIVE';
+  errorCode?: 'INVALID_CREDENTIALS' | 'ACCOUNT_LOCKED' | 'ACCOUNT_INACTIVE' | 'SESSION_ERROR';
 }
 
 // ============================================================================

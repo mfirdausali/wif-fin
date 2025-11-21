@@ -1,0 +1,46 @@
+{
+  "CallerReference": "pdf-service-1732157515",
+  "Comment": "WIF Finance PDF Service HTTPS",
+  "Enabled": true,
+  "Origins": {
+    "Quantity": 1,
+    "Items": [
+      {
+        "Id": "pdf-service-origin",
+        "DomainName": "18.141.140.2",
+        "CustomOriginConfig": {
+          "HTTPPort": 3001,
+          "HTTPSPort": 443,
+          "OriginProtocolPolicy": "http-only",
+          "OriginSslProtocols": {
+            "Quantity": 1,
+            "Items": ["TLSv1.2"]
+          },
+          "OriginReadTimeout": 60,
+          "OriginKeepaliveTimeout": 5
+        }
+      }
+    ]
+  },
+  "DefaultCacheBehavior": {
+    "TargetOriginId": "pdf-service-origin",
+    "ViewerProtocolPolicy": "redirect-to-https",
+    "AllowedMethods": {
+      "Quantity": 7,
+      "Items": ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"],
+      "CachedMethods": {
+        "Quantity": 2,
+        "Items": ["GET", "HEAD"]
+      }
+    },
+    "CachePolicyId": "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
+    "OriginRequestPolicyId": "216adef6-5c7f-47e4-b989-5492eafa07d3",
+    "Compress": true,
+    "MinTTL": 0,
+    "DefaultTTL": 0,
+    "MaxTTL": 31536000,
+    "SmoothStreaming": false
+  },
+  "PriceClass": "PriceClass_All",
+  "HttpVersion": "http2and3"
+}

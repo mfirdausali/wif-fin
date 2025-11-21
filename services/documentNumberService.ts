@@ -1,4 +1,5 @@
 import { DocumentType } from '../types/document';
+import { supabase } from '../lib/supabase';
 
 interface DocumentCounter {
   date: string; // YYYYMMDD format
@@ -13,6 +14,48 @@ interface DocumentCounter {
 const COUNTER_STORAGE_KEY = 'wif_document_counters';
 
 export class DocumentNumberService {
+  /**
+   * Generate next document number by querying Supabase for existing documents
+   * This ensures no duplicates even across different browsers/sessions
+   */
+  public static async generateDocumentNumberAsync(type: DocumentType): Promise<string> {
+    const prefix = this.getPrefix(type);
+    const today = this.getTodayString();
+    const pattern = `WIF-${prefix}-${today}-%`;
+
+    try {
+      // Query Supabase for existing documents with this pattern
+      const { data, error } = await supabase
+        .from('documents')
+        .select('document_number')
+        .like('document_number', pattern)
+        .order('document_number', { ascending: false })
+        .limit(1);
+
+      if (error) {
+        console.error('Error querying document numbers:', error);
+        // Fall back to localStorage method
+        return this.generateDocumentNumber(type);
+      }
+
+      let nextSerial = 1;
+      if (data && data.length > 0) {
+        // Extract the serial number from the last document
+        const lastDocNumber = (data[0] as { document_number: string }).document_number;
+        const match = lastDocNumber.match(/-(\d+)$/);
+        if (match) {
+          nextSerial = parseInt(match[1], 10) + 1;
+        }
+      }
+
+      const serial = String(nextSerial).padStart(3, '0');
+      return `WIF-${prefix}-${today}-${serial}`;
+    } catch (error) {
+      console.error('Error generating document number:', error);
+      // Fall back to localStorage method
+      return this.generateDocumentNumber(type);
+    }
+  }
   /**
    * Get the document type prefix
    */

@@ -1,62 +1,190 @@
 /**
- * Activity Log Service
+ * Activity Log Service - Google Sheets Backend
  *
  * Provides comprehensive audit trail functionality:
- * - Log all user actions
+ * - Log all user actions to Google Sheets
  * - Search and filter logs
  * - Export logs
  * - System integrity tracking
  *
- * Design Principles:
- * - Immutable logs (never delete, only add)
- * - Rich metadata for analysis
- * - Efficient querying
- * - Export capabilities
+ * Uses Google Apps Script as backend for reliability and free storage.
+ * Falls back to localStorage if Google Sheets is unavailable.
  */
 
 import {
   ActivityLog,
   ActivityType,
   ActivityLogFilter,
-  UserReference,
   PublicUser,
 } from '../types/auth';
 import { Document } from '../types/document';
 import { Account } from '../types/account';
 
 // ============================================================================
-// STORAGE KEYS
+// CONFIGURATION
 // ============================================================================
 
-const ACTIVITY_LOG_STORAGE_KEY = 'wif_activity_logs';
-const MAX_LOGS_IN_MEMORY = 10000; // Prevent localStorage overflow
+const GOOGLE_SHEETS_URL = import.meta.env.VITE_ACTIVITY_LOG_URL || '';
+const LOCAL_STORAGE_KEY = 'wif_activity_logs_pending';
+const MAX_RETRY_QUEUE = 100;
 
 // ============================================================================
-// ACTIVITY LOG PERSISTENCE
+// GOOGLE SHEETS API
 // ============================================================================
 
 /**
- * Load all activity logs from localStorage
+ * Check if Google Sheets integration is configured
  */
-export function loadActivityLogs(): ActivityLog[] {
-  const stored = localStorage.getItem(ACTIVITY_LOG_STORAGE_KEY);
+function isGoogleSheetsConfigured(): boolean {
+  return !!GOOGLE_SHEETS_URL && GOOGLE_SHEETS_URL.includes('script.google.com');
+}
+
+/**
+ * Send log to Google Sheets
+ */
+async function sendToGoogleSheets(log: ActivityLog): Promise<boolean> {
+  if (!isGoogleSheetsConfigured()) {
+    return false;
+  }
+
+  try {
+    await fetch(GOOGLE_SHEETS_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        action: 'log',
+        log: log,
+      }),
+      mode: 'no-cors', // Google Apps Script requires this
+    });
+
+    // With no-cors, we can't read the response, assume success if no error
+    return true;
+  } catch (error) {
+    console.error('Failed to send log to Google Sheets:', error);
+    return false;
+  }
+}
+
+/**
+ * Send batch of logs to Google Sheets
+ */
+async function sendBatchToGoogleSheets(logs: ActivityLog[]): Promise<boolean> {
+  if (!isGoogleSheetsConfigured() || logs.length === 0) {
+    return false;
+  }
+
+  try {
+    await fetch(GOOGLE_SHEETS_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        action: 'batch',
+        logs: logs,
+      }),
+      mode: 'no-cors',
+    });
+
+    return true;
+  } catch (error) {
+    console.error('Failed to send batch to Google Sheets:', error);
+    return false;
+  }
+}
+
+/**
+ * Fetch logs from Google Sheets
+ */
+async function fetchFromGoogleSheets(filter?: ActivityLogFilter): Promise<ActivityLog[] | null> {
+  if (!isGoogleSheetsConfigured()) {
+    return null;
+  }
+
+  try {
+    const params = new URLSearchParams();
+    params.append('action', 'fetch');
+
+    if (filter?.userId) params.append('userId', filter.userId);
+    if (filter?.type) params.append('type', filter.type);
+    if (filter?.resourceType) params.append('resourceType', filter.resourceType);
+    if (filter?.startDate) params.append('startDate', filter.startDate);
+    if (filter?.endDate) params.append('endDate', filter.endDate);
+    if (filter?.search) params.append('search', filter.search);
+    if (filter?.page) params.append('page', filter.page.toString());
+    if (filter?.limit) params.append('limit', filter.limit.toString());
+
+    const response = await fetch(`${GOOGLE_SHEETS_URL}?${params.toString()}`);
+    const data = await response.json();
+
+    if (data.success) {
+      return data.logs;
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Failed to fetch from Google Sheets:', error);
+    return null;
+  }
+}
+
+// ============================================================================
+// PENDING QUEUE (localStorage fallback)
+// ============================================================================
+
+/**
+ * Get pending logs from localStorage
+ */
+function getPendingLogs(): ActivityLog[] {
+  const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
   if (!stored) return [];
 
   try {
     return JSON.parse(stored) as ActivityLog[];
-  } catch (error) {
-    console.error('Failed to load activity logs:', error);
+  } catch {
     return [];
   }
 }
 
 /**
- * Save activity logs to localStorage
+ * Save pending logs to localStorage
  */
-export function saveActivityLogs(logs: ActivityLog[]): void {
-  // Keep only the most recent logs to prevent storage overflow
-  const logsToSave = logs.slice(-MAX_LOGS_IN_MEMORY);
-  localStorage.setItem(ACTIVITY_LOG_STORAGE_KEY, JSON.stringify(logsToSave));
+function savePendingLogs(logs: ActivityLog[]): void {
+  const logsToSave = logs.slice(-MAX_RETRY_QUEUE);
+  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(logsToSave));
+}
+
+/**
+ * Add log to pending queue
+ */
+function addToPendingQueue(log: ActivityLog): void {
+  const pending = getPendingLogs();
+  pending.push(log);
+  savePendingLogs(pending);
+}
+
+/**
+ * Clear pending queue
+ */
+function clearPendingQueue(): void {
+  localStorage.removeItem(LOCAL_STORAGE_KEY);
+}
+
+/**
+ * Retry sending pending logs
+ */
+async function retryPendingLogs(): Promise<void> {
+  const pending = getPendingLogs();
+  if (pending.length === 0) return;
+
+  const success = await sendBatchToGoogleSheets(pending);
+  if (success) {
+    clearPendingQueue();
+    console.log(`Successfully synced ${pending.length} pending activity logs`);
+  }
 }
 
 // ============================================================================
@@ -66,7 +194,7 @@ export function saveActivityLogs(logs: ActivityLog[]): void {
 /**
  * Create a user reference from a PublicUser
  */
-export function createUserReference(user: PublicUser): UserReference {
+export function createUserReference(user: PublicUser) {
   return {
     id: user.id,
     name: user.fullName,
@@ -95,7 +223,7 @@ export function logActivity(
   options?: {
     resourceId?: string;
     resourceType?: string;
-    metadata?: Record<string, any>;
+    metadata?: Record<string, unknown>;
   }
 ): ActivityLog {
   const log: ActivityLog = {
@@ -110,10 +238,13 @@ export function logActivity(
     timestamp: new Date().toISOString(),
   };
 
-  // Save to storage
-  const logs = loadActivityLogs();
-  logs.push(log);
-  saveActivityLogs(logs);
+  // Send to Google Sheets (fire and forget)
+  sendToGoogleSheets(log).then(success => {
+    if (!success) {
+      // Add to pending queue for retry
+      addToPendingQueue(log);
+    }
+  });
 
   return log;
 }
@@ -128,7 +259,7 @@ export function logActivity(
 export function logAuthEvent(
   type: 'auth:login' | 'auth:logout' | 'auth:login_failed' | 'auth:password_changed',
   user: PublicUser | { username: string },
-  metadata?: Record<string, any>
+  metadata?: Record<string, unknown>
 ): ActivityLog {
   const descriptions = {
     'auth:login': `User ${user.username} logged in successfully`,
@@ -137,7 +268,6 @@ export function logAuthEvent(
     'auth:password_changed': `User ${user.username} changed their password`,
   };
 
-  // For login failed, we might not have full user info
   const publicUser =
     'id' in user
       ? user
@@ -169,7 +299,7 @@ export function logDocumentEvent(
     | 'document:printed',
   user: PublicUser,
   document: Document,
-  metadata?: Record<string, any>
+  metadata?: Record<string, unknown>
 ): ActivityLog {
   const actions = {
     'document:created': 'created',
@@ -203,7 +333,7 @@ export function logAccountEvent(
   type: 'account:created' | 'account:updated' | 'account:deleted' | 'account:balance_changed',
   user: PublicUser,
   account: Account,
-  metadata?: Record<string, any>
+  metadata?: Record<string, unknown>
 ): ActivityLog {
   const actions = {
     'account:created': 'created',
@@ -238,7 +368,7 @@ export function logUserEvent(
     | 'user:deactivated',
   performedBy: PublicUser,
   targetUser: PublicUser,
-  metadata?: Record<string, any>
+  metadata?: Record<string, unknown>
 ): ActivityLog {
   const actions = {
     'user:created': 'created',
@@ -268,7 +398,7 @@ export function logSystemEvent(
   type: 'system:settings_changed' | 'system:data_exported',
   user: PublicUser,
   description: string,
-  metadata?: Record<string, any>
+  metadata?: Record<string, unknown>
 ): ActivityLog {
   return logActivity(type, user, description, {
     resourceType: 'system',
@@ -282,49 +412,85 @@ export function logSystemEvent(
 
 /**
  * Get all activity logs with optional filtering
+ * Fetches from Google Sheets, falls back to pending queue if unavailable
+ */
+export async function getActivityLogsAsync(filter?: ActivityLogFilter): Promise<ActivityLog[]> {
+  // Try to fetch from Google Sheets
+  const logs = await fetchFromGoogleSheets(filter);
+
+  if (logs !== null) {
+    return logs;
+  }
+
+  // Return pending logs if Google Sheets unavailable
+  let pendingLogs = getPendingLogs();
+
+  // Apply filters to pending logs
+  if (filter) {
+    if (filter.userId) {
+      pendingLogs = pendingLogs.filter((log) => log.userId === filter.userId);
+    }
+    if (filter.type) {
+      pendingLogs = pendingLogs.filter((log) => log.type === filter.type);
+    }
+    if (filter.resourceType) {
+      pendingLogs = pendingLogs.filter((log) => log.resourceType === filter.resourceType);
+    }
+    if (filter.startDate) {
+      const startDate = new Date(filter.startDate);
+      pendingLogs = pendingLogs.filter((log) => new Date(log.timestamp) >= startDate);
+    }
+    if (filter.endDate) {
+      const endDate = new Date(filter.endDate);
+      pendingLogs = pendingLogs.filter((log) => new Date(log.timestamp) <= endDate);
+    }
+    if (filter.search) {
+      const searchLower = filter.search.toLowerCase();
+      pendingLogs = pendingLogs.filter((log) =>
+        log.description.toLowerCase().includes(searchLower)
+      );
+    }
+  }
+
+  // Sort by timestamp (newest first)
+  pendingLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+  return pendingLogs;
+}
+
+/**
+ * Synchronous version for backward compatibility
+ * Returns pending logs only (cached locally)
  */
 export function getActivityLogs(filter?: ActivityLogFilter): ActivityLog[] {
-  let logs = loadActivityLogs();
+  let logs = getPendingLogs();
 
-  // Apply filters
   if (filter) {
-    // Filter by user ID
     if (filter.userId) {
       logs = logs.filter((log) => log.userId === filter.userId);
     }
-
-    // Filter by activity type
     if (filter.type) {
       logs = logs.filter((log) => log.type === filter.type);
     }
-
-    // Filter by resource type
     if (filter.resourceType) {
       logs = logs.filter((log) => log.resourceType === filter.resourceType);
     }
-
-    // Filter by date range
     if (filter.startDate) {
       const startDate = new Date(filter.startDate);
       logs = logs.filter((log) => new Date(log.timestamp) >= startDate);
     }
-
     if (filter.endDate) {
       const endDate = new Date(filter.endDate);
       logs = logs.filter((log) => new Date(log.timestamp) <= endDate);
     }
-
-    // Search in description
     if (filter.search) {
       const searchLower = filter.search.toLowerCase();
       logs = logs.filter((log) => log.description.toLowerCase().includes(searchLower));
     }
   }
 
-  // Sort by timestamp (newest first)
   logs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-  // Apply pagination
   if (filter?.page !== undefined && filter?.limit !== undefined) {
     const start = (filter.page - 1) * filter.limit;
     const end = start + filter.limit;
@@ -332,6 +498,13 @@ export function getActivityLogs(filter?: ActivityLogFilter): ActivityLog[] {
   }
 
   return logs;
+}
+
+/**
+ * Get recent activity logs
+ */
+export async function getRecentActivityAsync(limit: number = 50): Promise<ActivityLog[]> {
+  return getActivityLogsAsync({ limit, page: 1 });
 }
 
 /**
@@ -345,102 +518,6 @@ export function getUserActivityLogs(userId: string, limit?: number): ActivityLog
   });
 }
 
-/**
- * Get activity logs for a specific document
- */
-export function getDocumentActivityLogs(documentId: string): ActivityLog[] {
-  return getActivityLogs({
-    resourceType: 'document',
-  }).filter((log) => log.resourceId === documentId);
-}
-
-/**
- * Get activity logs for a specific account
- */
-export function getAccountActivityLogs(accountId: string): ActivityLog[] {
-  return getActivityLogs({
-    resourceType: 'account',
-  }).filter((log) => log.resourceId === accountId);
-}
-
-/**
- * Get recent activity logs
- */
-export function getRecentActivity(limit: number = 50): ActivityLog[] {
-  const logs = loadActivityLogs();
-  return logs
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-    .slice(0, limit);
-}
-
-// ============================================================================
-// STATISTICS & ANALYTICS
-// ============================================================================
-
-/**
- * Get activity statistics
- */
-export function getActivityStats(startDate?: string, endDate?: string) {
-  const logs = getActivityLogs({ startDate, endDate });
-
-  // Count by type
-  const byType: Record<string, number> = {};
-  logs.forEach((log) => {
-    byType[log.type] = (byType[log.type] || 0) + 1;
-  });
-
-  // Count by user
-  const byUser: Record<string, number> = {};
-  logs.forEach((log) => {
-    byUser[log.username] = (byUser[log.username] || 0) + 1;
-  });
-
-  // Count by resource type
-  const byResourceType: Record<string, number> = {};
-  logs.forEach((log) => {
-    if (log.resourceType) {
-      byResourceType[log.resourceType] = (byResourceType[log.resourceType] || 0) + 1;
-    }
-  });
-
-  return {
-    total: logs.length,
-    byType,
-    byUser,
-    byResourceType,
-    period: {
-      start: startDate,
-      end: endDate,
-    },
-  };
-}
-
-/**
- * Get user activity summary
- */
-export function getUserActivitySummary(userId: string, days: number = 30) {
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - days);
-
-  const logs = getActivityLogs({
-    userId,
-    startDate: startDate.toISOString(),
-  });
-
-  const activityByDay: Record<string, number> = {};
-
-  logs.forEach((log) => {
-    const date = new Date(log.timestamp).toISOString().split('T')[0];
-    activityByDay[date] = (activityByDay[date] || 0) + 1;
-  });
-
-  return {
-    totalActions: logs.length,
-    activityByDay,
-    mostRecentAction: logs[0]?.timestamp,
-  };
-}
-
 // ============================================================================
 // EXPORT
 // ============================================================================
@@ -448,18 +525,17 @@ export function getUserActivitySummary(userId: string, days: number = 30) {
 /**
  * Export activity logs to JSON
  */
-export function exportActivityLogsToJSON(filter?: ActivityLogFilter): string {
-  const logs = getActivityLogs(filter);
+export async function exportActivityLogsToJSON(filter?: ActivityLogFilter): Promise<string> {
+  const logs = await getActivityLogsAsync(filter);
   return JSON.stringify(logs, null, 2);
 }
 
 /**
  * Export activity logs to CSV
  */
-export function exportActivityLogsToCSV(filter?: ActivityLogFilter): string {
-  const logs = getActivityLogs(filter);
+export async function exportActivityLogsToCSV(filter?: ActivityLogFilter): Promise<string> {
+  const logs = await getActivityLogsAsync(filter);
 
-  // CSV header
   const headers = [
     'Timestamp',
     'Type',
@@ -470,13 +546,12 @@ export function exportActivityLogsToCSV(filter?: ActivityLogFilter): string {
   ];
   const csvRows = [headers.join(',')];
 
-  // CSV data
   logs.forEach((log) => {
     const row = [
       new Date(log.timestamp).toLocaleString(),
       log.type,
       log.username,
-      `"${log.description.replace(/"/g, '""')}"`, // Escape quotes
+      `"${log.description.replace(/"/g, '""')}"`,
       log.resourceType || '',
       log.resourceId || '',
     ];
@@ -489,14 +564,14 @@ export function exportActivityLogsToCSV(filter?: ActivityLogFilter): string {
 /**
  * Download activity logs as file
  */
-export function downloadActivityLogs(
+export async function downloadActivityLogs(
   format: 'json' | 'csv' = 'json',
   filter?: ActivityLogFilter
-): void {
+): Promise<void> {
   const content =
     format === 'json'
-      ? exportActivityLogsToJSON(filter)
-      : exportActivityLogsToCSV(filter);
+      ? await exportActivityLogsToJSON(filter)
+      : await exportActivityLogsToCSV(filter);
 
   const blob = new Blob([content], {
     type: format === 'json' ? 'application/json' : 'text/csv',
@@ -511,38 +586,48 @@ export function downloadActivityLogs(
 }
 
 // ============================================================================
-// CLEANUP
+// SYNC & MAINTENANCE
 // ============================================================================
 
 /**
- * Clear old activity logs (keep last N days)
+ * Sync pending logs to Google Sheets
+ * Call this periodically or on app initialization
  */
-export function cleanupOldLogs(daysToKeep: number = 90): number {
-  const logs = loadActivityLogs();
-  const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
+export async function syncPendingLogs(): Promise<number> {
+  const pending = getPendingLogs();
+  if (pending.length === 0) return 0;
 
-  const filteredLogs = logs.filter((log) => new Date(log.timestamp) >= cutoffDate);
-  const removedCount = logs.length - filteredLogs.length;
-
-  if (removedCount > 0) {
-    saveActivityLogs(filteredLogs);
+  const success = await sendBatchToGoogleSheets(pending);
+  if (success) {
+    clearPendingQueue();
+    return pending.length;
   }
 
-  return removedCount;
+  return 0;
 }
 
 /**
- * Get storage usage info
+ * Get sync status
  */
-export function getStorageInfo() {
-  const logs = loadActivityLogs();
-  const stored = localStorage.getItem(ACTIVITY_LOG_STORAGE_KEY) || '';
-
+export function getSyncStatus() {
+  const pending = getPendingLogs();
   return {
-    logCount: logs.length,
-    storageSizeKB: (stored.length / 1024).toFixed(2),
-    maxLogs: MAX_LOGS_IN_MEMORY,
-    percentageFull: ((logs.length / MAX_LOGS_IN_MEMORY) * 100).toFixed(1),
+    pendingCount: pending.length,
+    googleSheetsConfigured: isGoogleSheetsConfigured(),
+    lastPendingTimestamp: pending.length > 0 ? pending[pending.length - 1].timestamp : null,
   };
+}
+
+/**
+ * Initialize activity log service
+ * Attempts to sync pending logs on startup
+ */
+export async function initActivityLogService(): Promise<void> {
+  if (isGoogleSheetsConfigured()) {
+    console.log('Activity Log Service: Google Sheets integration enabled');
+    await retryPendingLogs();
+  } else {
+    console.log('Activity Log Service: Running in offline mode (localStorage only)');
+    console.log('To enable Google Sheets, set VITE_ACTIVITY_LOG_URL in your .env file');
+  }
 }

@@ -5,10 +5,10 @@ import { Button } from './ui/button';
 import { ScrollArea } from './ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Document, DocumentType } from '../types/document';
-import { FileText, Receipt, FileCheck, CheckCircle2, Calendar, Building2, DollarSign, Edit, Trash2, Download, Loader2 } from 'lucide-react';
+import { FileText, Receipt, FileCheck, CheckCircle2, Calendar, DollarSign, Edit, Trash2, Download, Loader2 } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from './ui/alert-dialog';
 import { PdfService } from '../services/pdfService';
-import { getCompanyInfo } from './Settings';
+import { getCompanyInfoAsync } from './Settings';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -25,10 +25,11 @@ export function DocumentList({ documents, onEdit, onDelete }: DocumentListProps)
   const handleDownloadPDF = async (doc: Document) => {
     setDownloadingId(doc.id);
     try {
-      const companyInfo = getCompanyInfo();
+      const companyInfo = await getCompanyInfoAsync();
       const printerInfo = user ? {
         userName: user.fullName,
-        printDate: new Date().toISOString()
+        printDate: new Date().toISOString(),
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
       } : undefined;
 
       await PdfService.downloadPDF(doc, companyInfo, printerInfo);
@@ -181,7 +182,7 @@ export function DocumentList({ documents, onEdit, onDelete }: DocumentListProps)
       )}
 
       {/* User tracking information */}
-      {(doc.createdBy || doc.approvedBy) && (
+      {(doc.createdBy || (doc.documentType === 'payment_voucher' && doc.approvedBy)) && (
         <div className="mt-3 pt-3 border-t space-y-1">
           {doc.createdBy && (
             <div className="text-xs text-gray-600">
@@ -307,7 +308,7 @@ export function DocumentList({ documents, onEdit, onDelete }: DocumentListProps)
                   <p className="text-gray-500">No documents created yet</p>
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {documents
                     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
                     .map(renderDocumentCard)}
@@ -324,7 +325,7 @@ export function DocumentList({ documents, onEdit, onDelete }: DocumentListProps)
                   <p className="text-gray-500">No invoices created yet</p>
                 </div>
               ) : (
-                <div className="space-y-4">{invoices.map(renderDocumentCard)}</div>
+                <div className="space-y-3">{invoices.map(renderDocumentCard)}</div>
               )}
             </ScrollArea>
           </TabsContent>
@@ -337,7 +338,7 @@ export function DocumentList({ documents, onEdit, onDelete }: DocumentListProps)
                   <p className="text-gray-500">No receipts created yet</p>
                 </div>
               ) : (
-                <div className="space-y-4">{receipts.map(renderDocumentCard)}</div>
+                <div className="space-y-3">{receipts.map(renderDocumentCard)}</div>
               )}
             </ScrollArea>
           </TabsContent>
@@ -350,7 +351,7 @@ export function DocumentList({ documents, onEdit, onDelete }: DocumentListProps)
                   <p className="text-gray-500">No payment vouchers created yet</p>
                 </div>
               ) : (
-                <div className="space-y-4">{vouchers.map(renderDocumentCard)}</div>
+                <div className="space-y-3">{vouchers.map(renderDocumentCard)}</div>
               )}
             </ScrollArea>
           </TabsContent>
@@ -363,7 +364,7 @@ export function DocumentList({ documents, onEdit, onDelete }: DocumentListProps)
                   <p className="text-gray-500">No statements of payment created yet</p>
                 </div>
               ) : (
-                <div className="space-y-4">{statements.map(renderDocumentCard)}</div>
+                <div className="space-y-3">{statements.map(renderDocumentCard)}</div>
               )}
             </ScrollArea>
           </TabsContent>

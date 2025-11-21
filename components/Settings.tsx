@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -6,16 +6,19 @@ import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Alert, AlertTitle, AlertDescription } from './ui/alert';
-import { ArrowLeft, Save, Info } from 'lucide-react';
+import { ArrowLeft, Save, Info, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { UserManagement } from './auth/UserManagement';
 import { ActivityLog } from './auth/ActivityLog';
 import { isAdmin } from '../utils/permissions';
-import { getUserStats } from '../services/userService';
-import { getActivityLogs, downloadActivityLogs } from '../services/activityLogService';
+// import { getUserStats } from '../services/userService';
+import { getActivityLogsAsync, downloadActivityLogs } from '../services/activityLogService';
+import { ActivityLog as ActivityLogType } from '../types/auth';
+import * as SupabaseService from '../services/supabaseService';
 
 const COMPANY_INFO_STORAGE_KEY = 'wif_company_info';
+const DEFAULT_COMPANY_ID = 'c0000000-0000-0000-0000-000000000001';
 
 export interface CompanyInfo {
   name: string;
@@ -51,31 +54,102 @@ export function Settings({ onBack }: SettingsProps) {
   } = useAuth();
   const userIsAdmin = user && isAdmin(user);
   const [formData, setFormData] = useState<CompanyInfo>(DEFAULT_COMPANY_INFO);
+  const [_isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [activityLogs, setActivityLogs] = useState<ActivityLogType[]>([]);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+
+  // Calculate user stats from users array
+  const userStats = useMemo(() => {
+    const total = users.length;
+    const active = users.filter(u => u.isActive).length;
+    const inactive = users.filter(u => !u.isActive).length;
+    const locked = users.filter(u => 'isLocked' in u && u.isLocked).length;
+    const byRole = {
+      admin: users.filter(u => u.role === 'admin').length,
+      manager: users.filter(u => u.role === 'manager').length,
+      accountant: users.filter(u => u.role === 'accountant').length,
+      viewer: users.filter(u => u.role === 'viewer').length,
+    };
+    return { total, active, inactive, locked, byRole };
+  }, [users]);
 
   useEffect(() => {
-    // Load company info from localStorage
-    const stored = localStorage.getItem(COMPANY_INFO_STORAGE_KEY);
-    if (stored) {
+    // Load company info from Supabase
+    async function loadCompanyInfo() {
       try {
-        const loadedData = JSON.parse(stored);
-        // Merge with defaults to ensure new fields exist
+        const company = await SupabaseService.getOrCreateDefaultCompany();
         setFormData({
-          ...DEFAULT_COMPANY_INFO,
-          ...loadedData
+          name: company.name || DEFAULT_COMPANY_INFO.name,
+          address: company.address || DEFAULT_COMPANY_INFO.address,
+          tel: company.tel || DEFAULT_COMPANY_INFO.tel,
+          email: company.email || DEFAULT_COMPANY_INFO.email,
+          registrationNo: company.registration_no || DEFAULT_COMPANY_INFO.registrationNo,
+          registeredOffice: company.registered_office || DEFAULT_COMPANY_INFO.registeredOffice,
         });
+        // Also sync to localStorage for offline access
+        localStorage.setItem(COMPANY_INFO_STORAGE_KEY, JSON.stringify({
+          name: company.name,
+          address: company.address,
+          tel: company.tel,
+          email: company.email,
+          registrationNo: company.registration_no,
+          registeredOffice: company.registered_office,
+        }));
       } catch (error) {
-        console.error('Failed to load company info:', error);
+        console.error('Failed to load company info from Supabase:', error);
+        // Fall back to localStorage
+        const stored = localStorage.getItem(COMPANY_INFO_STORAGE_KEY);
+        if (stored) {
+          try {
+            const loadedData = JSON.parse(stored);
+            setFormData({ ...DEFAULT_COMPANY_INFO, ...loadedData });
+          } catch (e) {
+            console.error('Failed to parse localStorage:', e);
+          }
+        }
+      } finally {
+        setIsLoading(false);
       }
     }
+    loadCompanyInfo();
   }, []);
 
-  const handleSave = () => {
-    // Save to localStorage
-    localStorage.setItem(COMPANY_INFO_STORAGE_KEY, JSON.stringify(formData));
+  // Load activity logs from Google Sheets
+  useEffect(() => {
+    async function loadActivityLogs() {
+      if (!userIsAdmin) return;
+      setIsLoadingLogs(true);
+      try {
+        const logs = await getActivityLogsAsync();
+        setActivityLogs(logs);
+      } catch (error) {
+        console.error('Failed to load activity logs:', error);
+      } finally {
+        setIsLoadingLogs(false);
+      }
+    }
+    loadActivityLogs();
+  }, [userIsAdmin]);
 
-    toast.success('Company information saved', {
-      description: 'Settings will be applied to all new PDFs',
-    });
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      // Save to Supabase
+      await SupabaseService.updateCompanyInfo(DEFAULT_COMPANY_ID, formData);
+      // Also save to localStorage for offline access
+      localStorage.setItem(COMPANY_INFO_STORAGE_KEY, JSON.stringify(formData));
+      toast.success('Company information saved', {
+        description: 'Settings will be applied to all new PDFs',
+      });
+    } catch (error) {
+      console.error('Failed to save company info:', error);
+      toast.error('Failed to save company information', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleReset = () => {
@@ -213,11 +287,15 @@ export function Settings({ onBack }: SettingsProps) {
 
           {userIsAdmin && (
             <div className="flex gap-2">
-              <Button onClick={handleSave} className="flex-1">
-                <Save className="w-4 h-4 mr-2" />
-                Save Settings
+              <Button onClick={handleSave} className="flex-1" disabled={isSaving}>
+                {isSaving ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4 mr-2" />
+                )}
+                {isSaving ? 'Saving...' : 'Save Settings'}
               </Button>
-              <Button variant="outline" onClick={handleReset}>
+              <Button variant="outline" onClick={handleReset} disabled={isSaving}>
                 Reset to Default
               </Button>
             </div>
@@ -231,7 +309,7 @@ export function Settings({ onBack }: SettingsProps) {
             <UserManagement
               users={users}
               currentUser={user}
-              userStats={getUserStats()}
+              userStats={userStats}
               onCreateUser={createNewUser}
               onUpdateUser={updateExistingUser}
               onDeleteUser={deleteExistingUser}
@@ -244,9 +322,10 @@ export function Settings({ onBack }: SettingsProps) {
         {userIsAdmin && user && (
           <TabsContent value="logs">
             <ActivityLog
-              activities={getActivityLogs()}
+              activities={activityLogs}
               users={users}
               onExport={(format) => downloadActivityLogs(format)}
+              isLoading={isLoadingLogs}
             />
           </TabsContent>
         )}
@@ -255,7 +334,7 @@ export function Settings({ onBack }: SettingsProps) {
   );
 }
 
-// Export function to get company info for PDF generation
+// Export function to get company info for PDF generation (sync - uses localStorage cache)
 export function getCompanyInfo(): CompanyInfo {
   const stored = localStorage.getItem(COMPANY_INFO_STORAGE_KEY);
   if (stored) {
@@ -271,6 +350,28 @@ export function getCompanyInfo(): CompanyInfo {
     }
   }
   return DEFAULT_COMPANY_INFO;
+}
+
+// Export async function to get company info from Supabase
+export async function getCompanyInfoAsync(): Promise<CompanyInfo> {
+  try {
+    const company = await SupabaseService.getOrCreateDefaultCompany();
+    const companyInfo: CompanyInfo = {
+      name: company.name || DEFAULT_COMPANY_INFO.name,
+      address: company.address || DEFAULT_COMPANY_INFO.address,
+      tel: company.tel || DEFAULT_COMPANY_INFO.tel,
+      email: company.email || DEFAULT_COMPANY_INFO.email,
+      registrationNo: company.registration_no || DEFAULT_COMPANY_INFO.registrationNo,
+      registeredOffice: company.registered_office || DEFAULT_COMPANY_INFO.registeredOffice,
+    };
+    // Update localStorage cache
+    localStorage.setItem(COMPANY_INFO_STORAGE_KEY, JSON.stringify(companyInfo));
+    return companyInfo;
+  } catch (error) {
+    console.error('Failed to load company info from Supabase:', error);
+    // Fall back to localStorage
+    return getCompanyInfo();
+  }
 }
 
 // Export function to save company info

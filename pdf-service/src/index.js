@@ -14,7 +14,12 @@ const PORT = process.env.PORT || 3001;
 // Middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:5173', 'http://localhost:5174'],
+  origin: process.env.ALLOWED_ORIGINS?.split(',') || [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'https://finance.wifjapan.com',
+    'https://d3iesx5hq3slg3.cloudfront.net'
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -63,16 +68,16 @@ async function generatePDF(html, companyInfo = {}, printerInfo = null) {
     const browser = await getBrowser();
     page = await browser.newPage();
 
-    // Set a reasonable viewport
-    await page.setViewport({ width: 1200, height: 800 });
+    // Set viewport - use tall height to ensure all content is rendered before pagination
+    await page.setViewport({ width: 1200, height: 16000 });
 
     await page.setContent(html, {
-      waitUntil: 'load',
+      waitUntil: 'networkidle0',
       timeout: 60000 // 60 seconds for large images
     });
 
-    // Give it a moment to render styles
-    await new Promise(resolve => setTimeout(resolve, 500));
+    // Give it a moment to render styles fully
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
     // Create footer template with company info
     const registrationNo = companyInfo.registrationNo || '';
@@ -82,23 +87,29 @@ async function generatePDF(html, companyInfo = {}, printerInfo = null) {
     let printerText = '';
     if (printerInfo && printerInfo.userName && printerInfo.printDate) {
       const printDate = new Date(printerInfo.printDate);
+      // Use timezone from printerInfo or default to Asia/Kuala_Lumpur (GMT+8)
+      const timezone = printerInfo.timezone || 'Asia/Kuala_Lumpur';
       const dateStr = printDate.toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'short',
-        day: 'numeric'
+        day: 'numeric',
+        timeZone: timezone
       });
       const timeStr = printDate.toLocaleTimeString('en-US', {
         hour: '2-digit',
-        minute: '2-digit'
+        minute: '2-digit',
+        timeZone: timezone
       });
-      printerText = `Printed by ${printerInfo.userName} on ${dateStr} at ${timeStr}`;
+      // Determine GMT offset label
+      const gmtOffset = timezone === 'Asia/Tokyo' ? 'GMT+9' : 'GMT+8';
+      printerText = `Printed by ${printerInfo.userName} on ${dateStr} at ${timeStr} (${gmtOffset})`;
     }
 
     const footerTemplate = `
-      <div style="width: 100%; font-family: Arial, sans-serif; font-size: 9px; padding: 10px 20px; text-align: center; color: #000000; border-top: 1px solid #d1d5db;">
-        <div style="margin-bottom: 3px;">Company Registration No: ${registrationNo}. Registered Office: ${registeredOffice}</div>
-        ${printerText ? `<div style="margin-bottom: 3px; color: #6b7280;">${printerText}</div>` : ''}
-        <div>Page <span class="pageNumber"></span> of <span class="totalPages"></span></div>
+      <div style="width: 100%; font-family: Arial, sans-serif; font-size: 9.5px; text-align: center; color: #333333; padding: 10px 40px; margin-top: 10px;">
+        <div style="margin-bottom: 4px; line-height: 1.4;">Company Registration No: ${registrationNo}. Registered Office: ${registeredOffice}</div>
+        ${printerText ? `<div style="margin-bottom: 4px; color: #666666; line-height: 1.4;">${printerText}</div>` : ''}
+        <div style="margin-top: 4px;">Page <span class="pageNumber"></span> of <span class="totalPages"></span></div>
       </div>
     `;
 
@@ -109,10 +120,10 @@ async function generatePDF(html, companyInfo = {}, printerInfo = null) {
       headerTemplate: '<div></div>',
       footerTemplate: footerTemplate,
       margin: {
-        top: '0.75in',
-        right: '0.75in',
-        bottom: '1in', // Increased to accommodate footer
-        left: '0.75in'
+        top: '20mm',      // Clean top margin
+        right: '20mm',    // Professional side margins
+        bottom: '25mm',   // Space for footer
+        left: '20mm'      // Professional side margins
       },
       preferCSSPageSize: false
     });
@@ -147,6 +158,7 @@ app.post('/api/pdf/invoice', async (req, res) => {
       documentNumber: invoice.documentNumber,
       customerName: invoice.customerName,
       itemsCount: invoice.items ? invoice.items.length : 0,
+      items: invoice.items ? invoice.items.map(i => i.description) : [],
       total: invoice.total,
       currency: invoice.currency,
       printedBy: printerInfo?.userName

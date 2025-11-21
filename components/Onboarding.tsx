@@ -93,7 +93,7 @@ export function Onboarding({ isOpen, onComplete, onSkip }: OnboardingProps) {
 
   return (
     <Dialog open={isOpen} onOpenChange={() => {}}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" hideClose>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" >
         {/* Progress Bar */}
         <div className="mb-6">
           <div className="flex items-center justify-between mb-2">
