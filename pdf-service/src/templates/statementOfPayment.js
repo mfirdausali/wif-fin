@@ -41,16 +41,21 @@ function generateStatementOfPaymentHTML(sop, companyInfo = {}) {
     <meta charset="UTF-8">
     <title>Statement of Payment - ${sop.documentNumber}</title>
     <style>
-        @page { size: A4; margin: 0.75in; }
+        @page {
+            size: A4;
+            margin: 0.75in 0.75in 1.5in 0.75in; /* Extra bottom margin for footer */
+        }
         body {
             font-family: 'Helvetica', 'Arial', sans-serif;
             line-height: 1.4;
             color: #000000;
             margin: 0;
-            padding: 0;
+            padding: 0 0 100pt 0; /* Bottom padding to prevent overlap with footer */
             font-size: 11pt;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
+            position: relative;
+            min-height: 100vh;
         }
         .document-title {
             text-align: center;
@@ -180,6 +185,32 @@ function generateStatementOfPaymentHTML(sop, companyInfo = {}) {
             font-size: 11pt;
             border-top: 2pt solid #000000;
         }
+        .footer {
+            position: fixed;
+            bottom: 0;
+            left: 0.75in;
+            right: 0.75in;
+            padding: 12pt 0;
+            border-top: 1pt solid #000000;
+            font-size: 8pt;
+            text-align: center;
+            color: #666666;
+            background: white;
+        }
+        .transfer-proof-container {
+            page-break-inside: avoid;
+            max-height: 350pt;
+            overflow: hidden;
+        }
+        .transfer-proof-image {
+            max-width: 100%;
+            max-height: 330pt;
+            object-fit: contain;
+            border: 1pt solid #d1d5db;
+        }
+        .items-section {
+            page-break-inside: avoid;
+        }
     </style>
 </head>
 <body>
@@ -240,8 +271,8 @@ function generateStatementOfPaymentHTML(sop, companyInfo = {}) {
     </div>
 
     ${hasItems ? `
-    <div style="border: 1pt solid #000000; margin-top: 24pt;">
-        <div style="background: #e8e8e8; padding: 8pt 12pt; font-size: 11pt; border-bottom: 0.5pt solid #000000;\">Payment Items</div>
+    <div class="items-section" style="border: 1pt solid #000000; margin-top: 24pt;">
+        <div style="background: #e8e8e8; padding: 8pt 12pt; font-size: 11pt; border-bottom: 0.5pt solid #000000;">Payment Items</div>
         <table class="items-table" style="border: none; margin: 0;">
             <thead>
                 <tr>
@@ -303,10 +334,10 @@ function generateStatementOfPaymentHTML(sop, companyInfo = {}) {
     ` : ''}
 
     ${sop.transferProofBase64 ? `
-    <div style="border: 1pt solid #000000; margin-top: 24pt;">
+    <div style="border: 1pt solid #000000; margin-top: 24pt; page-break-inside: avoid;">
         <div style="background: #e8e8e8; padding: 8pt 12pt; font-size: 11pt; border-bottom: 0.5pt solid #000000;">Transfer Proof</div>
-        <div style="padding: 12pt; text-align: center;">
-            <img src="${sop.transferProofBase64}" style="max-width: 100%; max-height: 500pt; border: 1pt solid #d1d5db;" alt="Transfer Proof" />
+        <div class="transfer-proof-container" style="padding: 12pt; text-align: center;">
+            <img src="${sop.transferProofBase64}" class="transfer-proof-image" alt="Transfer Proof" />
             ${sop.transferProofAttachment ? `<div style="margin-top: 6pt; font-size: 9pt; color: #6b7280;">File: ${sop.transferProofAttachment}</div>` : ''}
         </div>
     </div>
