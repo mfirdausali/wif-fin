@@ -17,10 +17,14 @@
  * - Transaction support
  */
 
-import { supabase, handleSupabaseError } from '../lib/supabase';
+import { supabase as supabaseClient, handleSupabaseError } from '../lib/supabase';
+
+export const supabase = supabaseClient;
 import type { Database } from '../types/database';
 import { Document, DocumentType, Invoice, Receipt, PaymentVoucher, StatementOfPayment, LineItem } from '../types/document';
 import { Account } from '../types/account';
+import { PublicUser } from '../types/auth';
+import { logDocumentEvent } from './activityLogService';
 
 // Type aliases for cleaner code
 type DbCompany = Database['public']['Tables']['companies']['Row'];
@@ -44,6 +48,7 @@ export interface CompanyInfo {
   email?: string;
   registrationNo?: string;
   registeredOffice?: string;
+  allowNegativeBalance?: boolean;
 }
 
 /**
@@ -77,7 +82,8 @@ export async function getOrCreateDefaultCompany(companyInfo?: CompanyInfo): Prom
       tel: companyInfo?.tel || '+60-XXX-XXXXXXX',
       email: companyInfo?.email || 'info@wifjapan.com',
       registration_no: companyInfo?.registrationNo || '(1594364-K)',
-      registered_office: companyInfo?.registeredOffice || 'NO.6, LORONG KIRI 10, KAMPUNG DATUK KERAMAT, KUALA LUMPUR, 54000, Malaysia'
+      registered_office: companyInfo?.registeredOffice || 'NO.6, LORONG KIRI 10, KAMPUNG DATUK KERAMAT, KUALA LUMPUR, 54000, Malaysia',
+      allow_negative_balance: companyInfo?.allowNegativeBalance !== undefined ? companyInfo.allowNegativeBalance : false
     };
 
     const { data: newCompany, error: createError } = await supabase
@@ -108,6 +114,7 @@ export async function updateCompanyInfo(companyId: string, updates: Partial<Comp
         ...(updates.email !== undefined && { email: updates.email }),
         ...(updates.registrationNo !== undefined && { registration_no: updates.registrationNo }),
         ...(updates.registeredOffice !== undefined && { registered_office: updates.registeredOffice }),
+        ...(updates.allowNegativeBalance !== undefined && { allow_negative_balance: updates.allowNegativeBalance }),
       })
       .eq('id', companyId)
       .select()
@@ -246,18 +253,40 @@ export async function generateDocumentNumber(companyId: string, documentType: Do
 
 /**
  * Create a complete document (with type-specific data and line items)
+ *
+ * RACE CONDITION FIX: Document numbers are generated atomically at insert time,
+ * not when the form loads. This prevents duplicate numbers when multiple users
+ * create documents simultaneously.
  */
 export async function createDocument(
   companyId: string,
-  document: Document
+  document: Document,
+  bookingId?: string
 ): Promise<Document> {
   try {
+    // ALWAYS generate a fresh document number for NEW documents
+    // Only use provided number if editing an existing document (has a real UUID id)
+    let documentNumber: string;
+
+    const isNewDocument = !document.id || document.id.startsWith('DOC-');
+
+    if (isNewDocument) {
+      // New document - ALWAYS generate fresh number
+      documentNumber = await generateDocumentNumber(companyId, document.documentType);
+      console.log(`[createDocument] Generated fresh number for NEW document: ${documentNumber}`);
+    } else {
+      // Editing existing document - keep original number
+      documentNumber = document.documentNumber;
+      console.log(`[createDocument] Using existing number for document ${document.id}: ${documentNumber}`);
+    }
+
     // 1. Create base document
     const docInsert: DbDocumentInsert = {
       company_id: companyId,
       account_id: document.accountId || null,
+      booking_id: bookingId || null,
       document_type: document.documentType,
-      document_number: document.documentNumber,
+      document_number: documentNumber, // Use the freshly generated number
       status: document.status,
       document_date: document.date,
       currency: document.currency,
@@ -365,7 +394,7 @@ export async function getDocument(documentId: string, documentType: DocumentType
         document = await getInvoiceData(docData!, items || []);
         break;
       case 'receipt':
-        document = await getReceiptData(docData!, items || []);
+        document = await getReceiptData(docData!);
         break;
       case 'payment_voucher':
         document = await getPaymentVoucherData(docData!, items || []);
@@ -409,6 +438,7 @@ export async function updateDocument(documentId: string, updates: Partial<Docume
     const { data: docData, error: docError } = await supabase
       .from('documents')
       .update({
+        ...(updates.documentNumber && { document_number: updates.documentNumber }),
         ...(updates.status && { status: updates.status }),
         ...(updates.amount !== undefined && { amount: updates.amount }),
         ...(updates.subtotal !== undefined && { subtotal: updates.subtotal }),
@@ -417,6 +447,7 @@ export async function updateDocument(documentId: string, updates: Partial<Docume
         ...(updates.total !== undefined && { total: updates.total }),
         ...(updates.notes !== undefined && { notes: updates.notes }),
         ...(updates.date && { document_date: updates.date }),
+        ...(updates.accountId !== undefined && { account_id: updates.accountId || null }),
       })
       .eq('id', documentId)
       .select()
@@ -510,6 +541,74 @@ export async function updateDocument(documentId: string, updates: Partial<Docume
   } catch (error) {
     console.error('Error updating document:', error);
     throw new Error(`Failed to update document: ${handleSupabaseError(error)}`);
+  }
+}
+
+/**
+ * Link document to a booking
+ * @param documentId - ID of the document to link
+ * @param bookingId - ID of the booking to link to
+ * @param user - Optional user for activity logging
+ * @param document - Optional document object for activity logging (if not provided, will be fetched)
+ */
+export async function linkDocumentToBooking(
+  documentId: string,
+  bookingId: string,
+  user?: PublicUser,
+  document?: Document
+): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('documents')
+      .update({ booking_id: bookingId })
+      .eq('id', documentId);
+
+    if (error) throw error;
+
+    // Log activity if user is provided
+    if (user && document) {
+      logDocumentEvent('document:linked_to_booking', user, document, {
+        documentId,
+        bookingId,
+      });
+    }
+  } catch (error) {
+    console.error('Error linking document to booking:', error);
+    throw new Error(`Failed to link document: ${handleSupabaseError(error)}`);
+  }
+}
+
+/**
+ * Unlink document from booking
+ * @param documentId - ID of the document to unlink
+ * @param user - Optional user for activity logging
+ * @param document - Optional document object for activity logging
+ * @param previousBookingId - Optional previous booking ID for logging
+ */
+export async function unlinkDocumentFromBooking(
+  documentId: string,
+  user?: PublicUser,
+  document?: Document,
+  previousBookingId?: string
+): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('documents')
+      .update({ booking_id: null })
+      .eq('id', documentId);
+
+    if (error) throw error;
+
+    // Log activity if user is provided
+    if (user && document) {
+      logDocumentEvent('document:unlinked_from_booking', user, document, {
+        documentId,
+        previousBookingId,
+      });
+    }
+  } catch (error) {
+    console.error('Error unlinking document from booking:', error);
+    throw new Error(`Failed to unlink document: ${handleSupabaseError(error)}`);
   }
 }
 
@@ -667,7 +766,7 @@ async function getInvoiceData(doc: DbDocument, items: DbLineItem[]): Promise<Inv
   return dbDocumentToInvoice(doc, invoiceData, items);
 }
 
-async function getReceiptData(doc: DbDocument, items: DbLineItem[]): Promise<Receipt> {
+async function getReceiptData(doc: DbDocument): Promise<Receipt> {
   const { data, error } = await supabase
     .from('receipts')
     .select('*')
@@ -684,7 +783,32 @@ async function getReceiptData(doc: DbDocument, items: DbLineItem[]): Promise<Rec
     received_by: 'Unknown',
   };
 
-  return dbDocumentToReceipt(doc, receiptData, items);
+  // Fetch linked invoice's document number if linkedInvoiceId exists
+  // Using JOIN query for reliability and efficiency
+  let linkedInvoiceNumber: string | undefined;
+  if (receiptData.linked_invoice_id) {
+    // The linked_invoice_id in receipts table references invoices.id (NOT documents.id)
+    // We need to: invoices.id -> invoices.document_id -> documents.document_number
+    const { data: invoiceWithDoc, error: lookupError } = await supabase
+      .from('invoices')
+      .select('document_id, documents(document_number)')
+      .eq('id', receiptData.linked_invoice_id)
+      .maybeSingle();
+
+    if (lookupError) {
+      console.warn('[getReceiptData] Failed to lookup linked invoice:', lookupError);
+    } else if (invoiceWithDoc) {
+      // Handle both nested object and array response formats from Supabase
+      const docs = invoiceWithDoc.documents as any;
+      if (docs) {
+        linkedInvoiceNumber = Array.isArray(docs) ? docs[0]?.document_number : docs.document_number;
+      }
+    }
+  }
+
+  const receipt = dbDocumentToReceipt(doc, receiptData);
+  receipt.linkedInvoiceNumber = linkedInvoiceNumber;
+  return receipt;
 }
 
 async function getPaymentVoucherData(doc: DbDocument, items: DbLineItem[]): Promise<PaymentVoucher> {
@@ -834,7 +958,7 @@ function dbDocumentToInvoice(doc: DbDocument, invoiceData: any, items: DbLineIte
   };
 }
 
-function dbDocumentToReceipt(doc: DbDocument, receiptData: any, items: DbLineItem[]): Receipt {
+function dbDocumentToReceipt(doc: DbDocument, receiptData: any): Receipt {
   return {
     id: doc.id,
     documentType: 'receipt',
@@ -851,7 +975,6 @@ function dbDocumentToReceipt(doc: DbDocument, receiptData: any, items: DbLineIte
     accountId: doc.account_id || undefined,
     accountName: undefined, // Will be filled in by caller if needed
     notes: doc.notes || undefined,
-    items: items.map(dbLineItemToLineItem),
     linkedInvoiceId: receiptData.linked_invoice_id || undefined,
     linkedInvoiceNumber: undefined, // Will be filled in by caller if needed
     payerName: receiptData.payer_name,

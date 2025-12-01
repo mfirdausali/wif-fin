@@ -24,7 +24,7 @@ function generateReceiptHTML(receipt, companyInfo = {}) {
             color: #000000;
             margin: 0;
             padding: 0;
-            font-size: 11pt;
+            font-size: 10pt;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
         }
@@ -66,6 +66,7 @@ function generateReceiptHTML(receipt, companyInfo = {}) {
             padding: 24pt;
             margin: 24pt 0;
             background: #f9fafb;
+            page-break-inside: avoid;
         }
         .receipt-row {
             display: flex;
@@ -90,6 +91,7 @@ function generateReceiptHTML(receipt, companyInfo = {}) {
             padding: 18pt;
             text-align: center;
             margin: 24pt 0;
+            page-break-inside: avoid;
         }
         .amount-label {
             font-size: 12pt;
@@ -150,10 +152,10 @@ function generateReceiptHTML(receipt, companyInfo = {}) {
             <div class="receipt-label">Country:</div>
             <div class="receipt-value">${receipt.country}</div>
         </div>
-        ${receipt.linkedInvoiceId ? `
+        ${receipt.linkedInvoiceNumber || receipt.linkedInvoiceId ? `
         <div class="receipt-row">
             <div class="receipt-label">Invoice Reference:</div>
-            <div class="receipt-value">${receipt.linkedInvoiceId}</div>
+            <div class="receipt-value">${receipt.linkedInvoiceNumber || receipt.linkedInvoiceId}</div>
         </div>
         ` : ''}
     </div>
