@@ -266,6 +266,10 @@ export type ActivityType =
   | 'auth:logout'
   | 'auth:login_failed'
   | 'auth:password_changed'
+  | 'auth:account_locked'
+  | 'auth:account_unlocked'
+  | 'auth:session_created'
+  | 'auth:session_revoked'
 
   // Document activities
   | 'document:created'
@@ -274,12 +278,26 @@ export type ActivityType =
   | 'document:status_changed'
   | 'document:approved'
   | 'document:printed'
+  | 'document:linked_to_booking'
+  | 'document:unlinked_from_booking'
+
+  // Booking activities
+  | 'booking:created'
+  | 'booking:updated'
+  | 'booking:deleted'
+  | 'booking:status_changed'
+  | 'booking:card_printed'
+  | 'booking:form_printed'
 
   // Account activities
   | 'account:created'
   | 'account:updated'
   | 'account:deleted'
   | 'account:balance_changed'
+
+  // Transaction activities (financial operations)
+  | 'transaction:applied'
+  | 'transaction:reversed'
 
   // User management activities
   | 'user:created'
