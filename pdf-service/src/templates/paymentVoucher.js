@@ -224,7 +224,7 @@ function generatePaymentVoucherHTML(pv, companyInfo = {}) {
         ${pv.approvedBy ? `
         <div class="detail-row">
             <div class="detail-label">Approved By:</div>
-            <div class="detail-value">${pv.approvedBy}</div>
+            <div class="detail-value">${typeof pv.approvedBy === 'object' ? pv.approvedBy.name : pv.approvedBy}${pv.approvalDate ? ` (${new Date(pv.approvalDate).toLocaleDateString()})` : ''}</div>
         </div>
         ` : ''}
         <div class="detail-row">
@@ -282,6 +282,18 @@ function generatePaymentVoucherHTML(pv, companyInfo = {}) {
     <div style="border: 1pt solid #000000; margin-top: 24pt;">
         <div style="background: #e8e8e8; padding: 8pt 12pt; font-size: 11pt; border-bottom: 0.5pt solid #000000;">Notes</div>
         <div style="padding: 12pt; font-size: 10pt; white-space: pre-line;">${pv.notes}</div>
+    </div>
+    ` : ''}
+
+    ${pv.supportingDocBase64 ? `
+    <div style="page-break-before: always;"></div>
+    <div style="border: 1pt solid #000000; margin-top: 24pt;">
+        <div style="background: #d4edda; padding: 8pt 12pt; font-size: 11pt; border-bottom: 0.5pt solid #000000; font-weight: bold;">
+            Supporting Document${pv.supportingDocFilename ? `: ${pv.supportingDocFilename}` : ''}
+        </div>
+        <div style="padding: 12pt; text-align: center;">
+            <img src="${pv.supportingDocBase64}" style="max-width: 100%; max-height: 700pt; object-fit: contain;" alt="Supporting Document" />
+        </div>
     </div>
     ` : ''}
 </body>

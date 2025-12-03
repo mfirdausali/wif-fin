@@ -13,7 +13,7 @@ import {
 import { logBookingEvent } from '../services/activityLogService';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
-import { canCreateDocuments } from '../utils/permissions';
+import { canCreateBookings, canEditBooking, canDeleteBookings } from '../utils/permissions';
 
 interface BookingManagementProps {
   companyId: string;
@@ -55,7 +55,7 @@ export function BookingManagement({ companyId }: BookingManagementProps) {
       if (user) {
         logBookingEvent(
           'booking:created',
-          { id: user.id, username: user.username, fullName: user.fullName },
+          user,
           {
             id: createdBooking.id,
             bookingCode: createdBooking.bookingCode,
@@ -102,7 +102,7 @@ export function BookingManagement({ companyId }: BookingManagementProps) {
           // Log status change event
           logBookingEvent(
             'booking:status_changed',
-            { id: user.id, username: user.username, fullName: user.fullName },
+            user,
             {
               id: updatedBooking.id,
               bookingCode: updatedBooking.bookingCode,
@@ -122,7 +122,7 @@ export function BookingManagement({ companyId }: BookingManagementProps) {
         // Log general update event
         logBookingEvent(
           'booking:updated',
-          { id: user.id, username: user.username, fullName: user.fullName },
+          user,
           {
             id: updatedBooking.id,
             bookingCode: updatedBooking.bookingCode,
@@ -166,7 +166,7 @@ export function BookingManagement({ companyId }: BookingManagementProps) {
       if (user && bookingToDelete) {
         logBookingEvent(
           'booking:deleted',
-          { id: user.id, username: user.username, fullName: user.fullName },
+          user,
           {
             id: bookingToDelete.id,
             bookingCode: bookingToDelete.bookingCode,
@@ -212,7 +212,8 @@ export function BookingManagement({ companyId }: BookingManagementProps) {
     setSelectedBooking(null);
   };
 
-  const canCreate = user && canCreateDocuments(user);
+  const canCreate = user && canCreateBookings(user);
+  const canDelete = user && canDeleteBookings(user);
 
   if (loading) {
     return (
@@ -237,8 +238,12 @@ export function BookingManagement({ companyId }: BookingManagementProps) {
           <BookingList
             bookings={bookings}
             onView={handleView}
-            onEdit={canCreate ? handleEditClick : undefined}
-            onDelete={canCreate ? handleDelete : undefined}
+            onEdit={user ? (booking) => {
+              if (canEditBooking(user, booking)) {
+                handleEditClick(booking);
+              }
+            } : undefined}
+            onDelete={canDelete ? handleDelete : undefined}
           />
         </>
       )}

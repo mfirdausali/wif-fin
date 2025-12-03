@@ -195,6 +195,60 @@ export function canDeleteAccounts(user: PublicUser): boolean {
 }
 
 // ============================================================================
+// BOOKING PERMISSION FUNCTIONS
+// ============================================================================
+
+/**
+ * Check if user can view bookings
+ */
+export function canViewBookings(user: PublicUser): boolean {
+  return hasPermission(user, 'bookings:view');
+}
+
+/**
+ * Check if user can create bookings
+ */
+export function canCreateBookings(user: PublicUser): boolean {
+  return hasPermission(user, 'bookings:create');
+}
+
+/**
+ * Check if user can edit a specific booking
+ * Admins can edit any booking, others cannot edit completed/cancelled
+ */
+export function canEditBooking(user: PublicUser, booking: { status: string }): boolean {
+  if (!hasPermission(user, 'bookings:edit')) {
+    return false;
+  }
+
+  // Admins can edit any booking
+  if (user.role === 'admin') {
+    return true;
+  }
+
+  // Non-admins cannot edit completed or cancelled bookings
+  if (booking.status === 'completed' || booking.status === 'cancelled') {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Check if user can delete bookings
+ */
+export function canDeleteBookings(user: PublicUser): boolean {
+  return hasPermission(user, 'bookings:delete');
+}
+
+/**
+ * Check if user can print bookings
+ */
+export function canPrintBookings(user: PublicUser): boolean {
+  return hasPermission(user, 'bookings:print');
+}
+
+// ============================================================================
 // USER MANAGEMENT PERMISSIONS
 // ============================================================================
 

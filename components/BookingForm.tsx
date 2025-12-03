@@ -185,7 +185,7 @@ export function BookingForm({ onSubmit, onCancel, initialData, companyId }: Book
       if (user) {
         logBookingEvent(
           'booking:form_printed',
-          { id: user.id, username: user.username, fullName: user.fullName },
+          user,
           {
             id: initialData.id,
             bookingCode: initialData.bookingCode,

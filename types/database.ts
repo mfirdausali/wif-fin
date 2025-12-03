@@ -268,6 +268,9 @@ export interface Database {
           requested_by: string;
           approved_by: string | null;
           approval_date: string | null;
+          supporting_doc_filename: string | null;
+          supporting_doc_base64: string | null;
+          supporting_doc_storage_path: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -283,6 +286,9 @@ export interface Database {
           requested_by: string;
           approved_by?: string | null;
           approval_date?: string | null;
+          supporting_doc_filename?: string | null;
+          supporting_doc_base64?: string | null;
+          supporting_doc_storage_path?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -298,6 +304,9 @@ export interface Database {
           requested_by?: string;
           approved_by?: string | null;
           approval_date?: string | null;
+          supporting_doc_filename?: string | null;
+          supporting_doc_base64?: string | null;
+          supporting_doc_storage_path?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -460,13 +469,101 @@ export interface Database {
           updated_at?: string;
         };
       };
+      users: {
+        Row: {
+          id: string;
+          company_id: string;
+          username: string;
+          email: string;
+          full_name: string;
+          password_hash: string;
+          role: 'admin' | 'manager' | 'accountant' | 'viewer' | 'operations';
+          is_active: boolean;
+          failed_login_attempts: number;
+          locked_until: string | null;
+          last_login: string | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          username: string;
+          email: string;
+          full_name: string;
+          password_hash: string;
+          role: 'admin' | 'manager' | 'accountant' | 'viewer' | 'operations';
+          is_active?: boolean;
+          failed_login_attempts?: number;
+          locked_until?: string | null;
+          last_login?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          company_id?: string;
+          username?: string;
+          email?: string;
+          full_name?: string;
+          password_hash?: string;
+          role?: 'admin' | 'manager' | 'accountant' | 'viewer' | 'operations';
+          is_active?: boolean;
+          failed_login_attempts?: number;
+          locked_until?: string | null;
+          last_login?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      activity_logs: {
+        Row: {
+          id: string;
+          user_id: string | null;
+          company_id: string | null;
+          action: string;
+          entity_type: string | null;
+          entity_id: string | null;
+          metadata: Record<string, unknown> | null;
+          ip_address: string | null;
+          user_agent: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string | null;
+          company_id?: string | null;
+          action: string;
+          entity_type?: string | null;
+          entity_id?: string | null;
+          metadata?: Record<string, unknown> | null;
+          ip_address?: string | null;
+          user_agent?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string | null;
+          company_id?: string | null;
+          action?: string;
+          entity_type?: string | null;
+          entity_id?: string | null;
+          metadata?: Record<string, unknown> | null;
+          ip_address?: string | null;
+          user_agent?: string | null;
+          created_at?: string;
+        };
+      };
       sessions: {
         Row: {
           id: string;
           user_id: string;
           token_hash: string;
           refresh_token_hash: string | null;
-          device_info: Json | null;
+          device_info: Record<string, unknown> | null;
           last_activity: string;
           expires_at: string;
           created_at: string;
@@ -476,7 +573,7 @@ export interface Database {
           user_id: string;
           token_hash: string;
           refresh_token_hash?: string | null;
-          device_info?: Json | null;
+          device_info?: Record<string, unknown> | null;
           last_activity?: string;
           expires_at: string;
           created_at?: string;
@@ -486,7 +583,7 @@ export interface Database {
           user_id?: string;
           token_hash?: string;
           refresh_token_hash?: string | null;
-          device_info?: Json | null;
+          device_info?: Record<string, unknown> | null;
           last_activity?: string;
           expires_at?: string;
           created_at?: string;

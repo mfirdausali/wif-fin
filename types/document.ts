@@ -92,6 +92,10 @@ export interface PaymentVoucher extends BaseDocument {
   approvedBy?: string | UserReference; // Can be string (legacy) or UserReference (new)
   approvalDate?: string;
   paymentDueDate?: string;
+  // Supporting documents
+  supportingDocFilename?: string; // File name of supporting document
+  supportingDocBase64?: string; // Base64 encoded image for PDF embedding (legacy, for backward compatibility)
+  supportingDocStoragePath?: string; // Supabase Storage path for supporting document (new format)
   // Keep purpose for backward compatibility
   purpose?: string;
 }

@@ -69,7 +69,7 @@ export function BookingList({ bookings, onView, onEdit, onDelete }: BookingListP
       if (user) {
         logBookingEvent(
           'booking:card_printed',
-          { id: user.id, username: user.username, fullName: user.fullName },
+          user,
           {
             id: selectedBookingForPrint.id,
             bookingCode: selectedBookingForPrint.bookingCode,
@@ -123,7 +123,7 @@ export function BookingList({ bookings, onView, onEdit, onDelete }: BookingListP
       if (user) {
         logBookingEvent(
           'booking:form_printed',
-          { id: user.id, username: user.username, fullName: user.fullName },
+          user,
           {
             id: selectedBookingForFormPrint.id,
             bookingCode: selectedBookingForFormPrint.bookingCode,

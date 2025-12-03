@@ -671,15 +671,17 @@ function AppContent() {
                   <div className="text-xs text-gray-500">{user?.role}</div>
                 </div>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleExport}
-                disabled={documents.length === 0}
-              >
-                <Download className="w-4 h-4 mr-2" />
-                Export
-              </Button>
+              {user && hasPermission(user, 'system:export_data') && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExport}
+                  disabled={documents.length === 0}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Export
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"

@@ -497,6 +497,7 @@ export async function getUserStats() {
       manager: users.filter((u) => u.role === 'manager').length,
       accountant: users.filter((u) => u.role === 'accountant').length,
       viewer: users.filter((u) => u.role === 'viewer').length,
+      operations: users.filter((u) => u.role === 'operations').length,
     },
     locked: users.filter((u) => u.lockedUntil && new Date(u.lockedUntil) > new Date()).length,
   };

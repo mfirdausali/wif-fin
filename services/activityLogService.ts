@@ -435,7 +435,7 @@ export function logBookingEvent(
     | 'booking:status_changed'
     | 'booking:card_printed'
     | 'booking:form_printed',
-  user: { id: string; username: string; fullName: string },
+  user: PublicUser,
   booking: { id: string; bookingCode: string; guestName: string; status?: string },
   metadata?: Record<string, unknown>
 ): ActivityLog {
@@ -450,20 +450,7 @@ export function logBookingEvent(
 
   const description = `${user.fullName} ${actions[type]} booking ${booking.bookingCode} (${booking.guestName})`;
 
-  // Create a PublicUser-compatible object for logActivity
-  const publicUser: PublicUser = {
-    id: user.id,
-    username: user.username,
-    fullName: user.fullName,
-    email: '',
-    role: 'viewer',
-    isActive: true,
-    createdBy: 'system',
-    createdAt: '',
-    updatedAt: '',
-  };
-
-  return logActivity(type, publicUser, description, {
+  return logActivity(type, user, description, {
     resourceId: booking.id,
     resourceType: 'booking',
     metadata: {

@@ -5,7 +5,7 @@ import { Button } from './ui/button';
 import { ScrollArea } from './ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Document, DocumentType } from '../types/document';
-import { FileText, Receipt, FileCheck, CheckCircle2, Calendar, DollarSign, Edit, Trash2, Download, Loader2 } from 'lucide-react';
+import { FileText, Receipt, FileCheck, CheckCircle2, Calendar, DollarSign, Edit, Trash2, Download, Loader2, Paperclip } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from './ui/alert-dialog';
 import { PdfService } from '../services/pdfService';
 import { getCompanyInfoAsync } from './Settings';
@@ -155,6 +155,15 @@ export function DocumentList({ documents, onEdit, onDelete }: DocumentListProps)
         <div className="mt-2">
           <Badge variant="outline" className="text-xs">
             Linked to: {doc.linkedInvoiceNumber}
+          </Badge>
+        </div>
+      )}
+
+      {doc.documentType === 'payment_voucher' && doc.supportingDocFilename && (
+        <div className="mt-2">
+          <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+            <Paperclip className="w-3 h-3 mr-1" />
+            {doc.supportingDocFilename}
           </Badge>
         </div>
       )}

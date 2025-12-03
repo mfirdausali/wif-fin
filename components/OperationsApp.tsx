@@ -13,6 +13,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { Document, PaymentVoucher } from '../types/document';
 import { Account } from '../types/account';
 import { logAuthEvent, logDocumentEvent } from '../services/activityLogService';
+import { hasPermission } from '../services/userService';
+import { canDeleteDocument } from '../utils/permissions';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
@@ -109,6 +111,53 @@ export function OperationsApp() {
       setShowVoucherForm(true);
     }
   };
+
+  /**
+   * Handle document deletion with permission check and activity logging.
+   * Note: Operations users do NOT have 'documents:delete' permission,
+   * so this handler will only be used if a manager/admin accesses this portal.
+   */
+  const handleDeleteVoucher = async (documentId: string) => {
+    if (!user) {
+      toast.error('You must be logged in to delete documents');
+      return;
+    }
+
+    // Find the document to delete
+    const documentToDelete = documents.find(doc => doc.id === documentId);
+    if (!documentToDelete) {
+      toast.error('Document not found');
+      return;
+    }
+
+    // Permission check - use the fine-grained permission helper
+    if (!canDeleteDocument(user, documentToDelete)) {
+      toast.error('You do not have permission to delete this document');
+      return;
+    }
+
+    try {
+      await SupabaseService.deleteDocument(documentId);
+
+      // Log the deletion activity
+      logDocumentEvent('document:deleted', user, documentToDelete, {
+        deletedAt: new Date().toISOString(),
+        documentNumber: documentToDelete.documentNumber,
+        documentType: documentToDelete.documentType,
+      });
+
+      // Update local state
+      setDocuments(prev => prev.filter(doc => doc.id !== documentId));
+
+      toast.success(`Payment Voucher ${documentToDelete.documentNumber} deleted`);
+    } catch (error) {
+      console.error('Error deleting voucher:', error);
+      toast.error('Failed to delete Payment Voucher');
+    }
+  };
+
+  // Check if current user can delete documents (for conditional UI rendering)
+  const userCanDelete = user ? hasPermission(user, 'documents:delete') : false;
 
   // Stats for dashboard
   const voucherStats = {
@@ -233,9 +282,12 @@ export function OperationsApp() {
               </div>
 
               {/* Voucher List - filtered to only show payment vouchers */}
+              {/* onDelete is only passed if user has 'documents:delete' permission */}
+              {/* Operations users do NOT have this permission, so delete button won't appear for them */}
               <DocumentList
                 documents={paymentVouchers}
                 onEdit={handleEditVoucher}
+                onDelete={userCanDelete ? handleDeleteVoucher : undefined}
               />
             </TabsContent>
 

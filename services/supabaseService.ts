@@ -521,8 +521,18 @@ export async function updateDocument(documentId: string, updates: Partial<Docume
           ...(voucherUpdates.voucherDate && { voucher_date: voucherUpdates.voucherDate }),
           ...(voucherUpdates.paymentDueDate !== undefined && { payment_due_date: voucherUpdates.paymentDueDate }),
           ...(voucherUpdates.requestedBy && { requested_by: voucherUpdates.requestedBy }),
-          ...(voucherUpdates.approvedBy !== undefined && { approved_by: voucherUpdates.approvedBy }),
+          // Serialize UserReference object to JSON string for TEXT column storage
+          ...(voucherUpdates.approvedBy !== undefined && {
+            approved_by: voucherUpdates.approvedBy
+              ? (typeof voucherUpdates.approvedBy === 'object'
+                  ? JSON.stringify(voucherUpdates.approvedBy)
+                  : voucherUpdates.approvedBy)
+              : null
+          }),
           ...(voucherUpdates.approvalDate !== undefined && { approval_date: voucherUpdates.approvalDate }),
+          ...(voucherUpdates.supportingDocFilename !== undefined && { supporting_doc_filename: voucherUpdates.supportingDocFilename }),
+          ...(voucherUpdates.supportingDocBase64 !== undefined && { supporting_doc_base64: voucherUpdates.supportingDocBase64 }),
+          ...(voucherUpdates.supportingDocStoragePath !== undefined && { supporting_doc_storage_path: voucherUpdates.supportingDocStoragePath }),
         })
         .eq('document_id', documentId);
     }
@@ -793,8 +803,16 @@ async function createPaymentVoucher(documentId: string, voucher: PaymentVoucher)
       voucher_date: voucher.voucherDate,
       payment_due_date: voucher.paymentDueDate || null,
       requested_by: voucher.requestedBy,
-      approved_by: voucher.approvedBy || null,
+      // Serialize UserReference object to JSON string for TEXT column storage
+      approved_by: voucher.approvedBy
+        ? (typeof voucher.approvedBy === 'object'
+            ? JSON.stringify(voucher.approvedBy)
+            : voucher.approvedBy)
+        : null,
       approval_date: voucher.approvalDate || null,
+      supporting_doc_filename: voucher.supportingDocFilename || null,
+      supporting_doc_base64: voucher.supportingDocBase64 || null,
+      supporting_doc_storage_path: voucher.supportingDocStoragePath || null,
     });
 
   if (error) throw error;
@@ -1142,8 +1160,27 @@ function dbDocumentToPaymentVoucher(doc: DbDocument, voucherData: any, items: Db
     voucherDate: voucherData.voucher_date,
     paymentDueDate: voucherData.payment_due_date || undefined,
     requestedBy: voucherData.requested_by,
-    approvedBy: voucherData.approved_by || undefined,
+    // Parse JSON string back to UserReference object, or return as string (legacy format)
+    approvedBy: voucherData.approved_by
+      ? (() => {
+          try {
+            const parsed = JSON.parse(voucherData.approved_by);
+            // If it's a valid UserReference object, return it
+            if (typeof parsed === 'object' && parsed.name) {
+              return parsed;
+            }
+            // Otherwise return the original string
+            return voucherData.approved_by;
+          } catch {
+            // Not valid JSON, return as string (legacy format)
+            return voucherData.approved_by;
+          }
+        })()
+      : undefined,
     approvalDate: voucherData.approval_date || undefined,
+    supportingDocFilename: voucherData.supporting_doc_filename || undefined,
+    supportingDocBase64: voucherData.supporting_doc_base64 || undefined,
+    supportingDocStoragePath: voucherData.supporting_doc_storage_path || undefined,
     createdAt: doc.created_at,
     updatedAt: doc.updated_at,
   };
