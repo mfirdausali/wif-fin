@@ -7,6 +7,7 @@ import { StatementOfPaymentForm } from './components/StatementOfPaymentForm';
 import { DocumentList } from './components/DocumentList';
 import { AccountManagement } from './components/AccountManagement';
 import { AccountBalanceSheet } from './components/AccountBalanceSheet';
+import { BookingManagement } from './components/BookingManagement';
 import { Settings, CompanyInfo, saveCompanyInfo } from './components/Settings';
 import { Onboarding } from './components/Onboarding';
 import { LoginScreen } from './components/auth/LoginScreen';
@@ -15,17 +16,16 @@ import { Document, DocumentType, Invoice, Receipt, PaymentVoucher, StatementOfPa
 import { Account } from './types/account';
 import { LoginCredentials } from './types/auth';
 import { TransactionService } from './services/transactionService';
-import { logAuthEvent, logDocumentEvent } from './services/activityLogService';
+import { logAuthEvent, logDocumentEvent, logAccountEvent, logTransactionEvent } from './services/activityLogService';
 import { canCreateDocuments, canEditDocument, canDeleteDocument } from './utils/permissions';
 import { hasPermission } from './services/userService';
 import { Button } from './components/ui/button';
 import { Card, CardContent } from './components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
-import { Download, Trash2, ArrowLeft, Info, Settings as SettingsIcon, LogOut, User } from 'lucide-react';
+import { Download, ArrowLeft, Info, Settings as SettingsIcon, LogOut, User } from 'lucide-react';
 import { toast } from 'sonner';
 import { Toaster } from './components/ui/sonner';
 import { Alert, AlertTitle, AlertDescription } from './components/ui/alert';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from './components/ui/alert-dialog';
 import * as SupabaseService from './services/supabaseService';
 
 const ONBOARDING_STORAGE_KEY = 'wif_onboarding_completed';
@@ -34,6 +34,7 @@ const ONBOARDING_STORAGE_KEY = 'wif_onboarding_completed';
 function AppContent() {
   const { user, logout } = useAuth();
   const [companyId, setCompanyId] = useState<string | null>(null);
+  const [allowNegativeBalance, setAllowNegativeBalance] = useState<boolean>(false);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedType, setSelectedType] = useState<DocumentType | null>(null);
@@ -61,6 +62,7 @@ function AppContent() {
         // Get or create default company
         const company = await SupabaseService.getOrCreateDefaultCompany();
         setCompanyId(company.id);
+        setAllowNegativeBalance(company.allow_negative_balance || false);
 
         // Load documents and accounts in parallel
         const [loadedDocs, loadedAccounts] = await Promise.all([
@@ -115,7 +117,7 @@ function AppContent() {
     // Validate transaction if document affects accounts
     if (document.accountId && TransactionService.shouldAffectAccount(document)) {
       const account = accounts.find(acc => acc.id === document.accountId);
-      const validation = TransactionService.validateTransaction(document, account);
+      const validation = TransactionService.validateTransaction(document, account, allowNegativeBalance);
 
       if (!validation.isValid) {
         toast.error('Transaction validation failed', {
@@ -142,6 +144,7 @@ function AppContent() {
 
         const accountToUpdate = accounts.find(acc => acc.id === createdDoc.accountId);
         if (accountToUpdate) {
+          const previousBalance = accountToUpdate.currentBalance;
           const updatedAccount = TransactionService.applyTransaction(accountToUpdate, createdDoc);
           await SupabaseService.updateAccount(updatedAccount.id, { currentBalance: updatedAccount.currentBalance });
           console.log('✓ Account balance updated in Supabase');
@@ -149,6 +152,36 @@ function AppContent() {
           setAccounts(prev => prev.map(acc =>
             acc.id === updatedAccount.id ? updatedAccount : acc
           ));
+
+          // Log transaction and balance change
+          if (user) {
+            const changeAmount = updatedAccount.currentBalance - previousBalance;
+            const transactionType = changeAmount >= 0 ? 'increase' : 'decrease';
+
+            // Log transaction applied
+            logTransactionEvent('transaction:applied', user, {
+              accountId: accountToUpdate.id,
+              accountName: accountToUpdate.name,
+              previousBalance,
+              newBalance: updatedAccount.currentBalance,
+              changeAmount,
+              documentId: createdDoc.id,
+              documentNumber: createdDoc.documentNumber,
+              documentType: createdDoc.documentType,
+              transactionType,
+              currency: accountToUpdate.currency,
+            });
+
+            // Log account balance changed
+            logAccountEvent('account:balance_changed', user, updatedAccount, {
+              previousBalance,
+              changeAmount,
+              documentId: createdDoc.id,
+              documentNumber: createdDoc.documentNumber,
+              documentType: createdDoc.documentType,
+              transactionType,
+            });
+          }
         }
       }
 
@@ -156,17 +189,37 @@ function AppContent() {
       if (createdDoc.documentType === 'receipt' && createdDoc.linkedInvoiceId) {
         // Mark invoice as paid
         await SupabaseService.updateDocument(createdDoc.linkedInvoiceId, { status: 'paid' });
+        const linkedInvoice = documents.find(doc => doc.id === createdDoc.linkedInvoiceId);
         setDocuments(prev => prev.map(doc =>
           doc.id === createdDoc.linkedInvoiceId ? { ...doc, status: 'paid' as const } : doc
         ));
+
+        // Log status change for invoice
+        if (user && linkedInvoice) {
+          logDocumentEvent('document:status_changed', user, { ...linkedInvoice, status: 'paid' }, {
+            previousStatus: 'issued',
+            newStatus: 'paid',
+            triggeredBy: createdDoc.documentNumber,
+          });
+        }
       }
 
       if (createdDoc.documentType === 'statement_of_payment') {
         // Mark payment voucher as completed
         await SupabaseService.updateDocument(createdDoc.linkedVoucherId, { status: 'completed' });
+        const linkedVoucher = documents.find(doc => doc.id === createdDoc.linkedVoucherId);
         setDocuments(prev => prev.map(doc =>
           doc.id === createdDoc.linkedVoucherId ? { ...doc, status: 'completed' as const } : doc
         ));
+
+        // Log status change for payment voucher
+        if (user && linkedVoucher) {
+          logDocumentEvent('document:status_changed', user, { ...linkedVoucher, status: 'completed' }, {
+            previousStatus: 'issued',
+            newStatus: 'completed',
+            triggeredBy: createdDoc.documentNumber,
+          });
+        }
       }
 
       const typeLabels = {
@@ -201,7 +254,7 @@ function AppContent() {
     // Validate transaction if updated document affects accounts
     if (updatedDocument.accountId && TransactionService.shouldAffectAccount(updatedDocument)) {
       const account = accounts.find(acc => acc.id === updatedDocument.accountId);
-      const validation = TransactionService.validateTransaction(updatedDocument, account);
+      const validation = TransactionService.validateTransaction(updatedDocument, account, allowNegativeBalance);
 
       if (!validation.isValid) {
         toast.error('Transaction validation failed', {
@@ -215,21 +268,42 @@ function AppContent() {
       // Update account balances - reverse old and apply new using Transaction Service
       if (editingDocument.accountId || updatedDocument.accountId) {
         const accountsToUpdate: Account[] = [];
+        const transactionLogs: Array<{
+          type: 'applied' | 'reversed';
+          account: Account;
+          previousBalance: number;
+          document: Document;
+        }> = [];
 
         accounts.forEach(acc => {
           let updatedAcc = acc;
+          const originalBalance = acc.currentBalance;
 
           // Reverse old document's effect
           if (acc.id === editingDocument.accountId && TransactionService.shouldAffectAccount(editingDocument)) {
+            const balanceBeforeReverse = updatedAcc.currentBalance;
             updatedAcc = TransactionService.reverseTransaction(updatedAcc, editingDocument);
+            transactionLogs.push({
+              type: 'reversed',
+              account: { ...acc, currentBalance: updatedAcc.currentBalance },
+              previousBalance: balanceBeforeReverse,
+              document: editingDocument,
+            });
           }
 
           // Apply new document's effect
           if (updatedAcc.id === updatedDocument.accountId && TransactionService.shouldAffectAccount(updatedDocument)) {
+            const balanceBeforeApply = updatedAcc.currentBalance;
             updatedAcc = TransactionService.applyTransaction(updatedAcc, updatedDocument);
+            transactionLogs.push({
+              type: 'applied',
+              account: { ...acc, currentBalance: updatedAcc.currentBalance },
+              previousBalance: balanceBeforeApply,
+              document: updatedDocument,
+            });
           }
 
-          if (updatedAcc !== acc) {
+          if (updatedAcc !== acc || updatedAcc.currentBalance !== originalBalance) {
             accountsToUpdate.push(updatedAcc);
           }
         });
@@ -245,6 +319,40 @@ function AppContent() {
           const updated = accountsToUpdate.find(u => u.id === acc.id);
           return updated || acc;
         }));
+
+        // Log all transaction changes
+        if (user) {
+          for (const txLog of transactionLogs) {
+            const changeAmount = txLog.account.currentBalance - txLog.previousBalance;
+            const transactionType = changeAmount >= 0 ? 'increase' : 'decrease';
+            const originalAccount = accounts.find(a => a.id === txLog.account.id);
+
+            if (originalAccount) {
+              logTransactionEvent(txLog.type === 'applied' ? 'transaction:applied' : 'transaction:reversed', user, {
+                accountId: originalAccount.id,
+                accountName: originalAccount.name,
+                previousBalance: txLog.previousBalance,
+                newBalance: txLog.account.currentBalance,
+                changeAmount,
+                documentId: txLog.document.id,
+                documentNumber: txLog.document.documentNumber,
+                documentType: txLog.document.documentType,
+                transactionType,
+                currency: originalAccount.currency,
+              });
+
+              logAccountEvent('account:balance_changed', user, { ...originalAccount, currentBalance: txLog.account.currentBalance }, {
+                previousBalance: txLog.previousBalance,
+                changeAmount,
+                documentId: txLog.document.id,
+                documentNumber: txLog.document.documentNumber,
+                documentType: txLog.document.documentType,
+                transactionType,
+                reason: txLog.type === 'reversed' ? 'document_update_reversal' : 'document_update_application',
+              });
+            }
+          }
+        }
       }
 
       // Update the document in Supabase
@@ -319,25 +427,19 @@ function AppContent() {
       toast.success('Account added successfully', {
         description: `${account.name} - ${account.currency}`,
       });
+
+      // Log account creation activity
+      if (user) {
+        logAccountEvent('account:created', user, createdAccount, {
+          accountType: createdAccount.type,
+          initialBalance: createdAccount.initialBalance,
+          bankName: createdAccount.bankName,
+          custodian: createdAccount.custodian,
+        });
+      }
     } catch (error) {
       console.error('Error creating account:', error);
       toast.error('Failed to create account', {
-        description: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  };
-
-  const handleClearAll = async () => {
-    try {
-      // Delete all documents from Supabase
-      await Promise.all(documents.map(doc => SupabaseService.deleteDocument(doc.id)));
-      console.log('✓ All documents deleted from Supabase');
-
-      setDocuments([]);
-      toast.info('All documents cleared');
-    } catch (error) {
-      console.error('Error clearing documents:', error);
-      toast.error('Failed to clear documents', {
         description: error instanceof Error ? error.message : 'Unknown error'
       });
     }
@@ -372,12 +474,44 @@ function AppContent() {
       if (docToDelete.accountId && TransactionService.shouldAffectAccount(docToDelete)) {
         const accountToUpdate = accounts.find(acc => acc.id === docToDelete.accountId);
         if (accountToUpdate) {
+          const previousBalance = accountToUpdate.currentBalance;
           const updatedAccount = TransactionService.reverseTransaction(accountToUpdate, docToDelete);
           await SupabaseService.updateAccount(updatedAccount.id, { currentBalance: updatedAccount.currentBalance });
 
           setAccounts(prev => prev.map(acc =>
             acc.id === updatedAccount.id ? updatedAccount : acc
           ));
+
+          // Log transaction reversal and balance change
+          if (user) {
+            const changeAmount = updatedAccount.currentBalance - previousBalance;
+            const transactionType = changeAmount >= 0 ? 'increase' : 'decrease';
+
+            // Log transaction reversed
+            logTransactionEvent('transaction:reversed', user, {
+              accountId: accountToUpdate.id,
+              accountName: accountToUpdate.name,
+              previousBalance,
+              newBalance: updatedAccount.currentBalance,
+              changeAmount,
+              documentId: docToDelete.id,
+              documentNumber: docToDelete.documentNumber,
+              documentType: docToDelete.documentType,
+              transactionType,
+              currency: accountToUpdate.currency,
+            });
+
+            // Log account balance changed
+            logAccountEvent('account:balance_changed', user, updatedAccount, {
+              previousBalance,
+              changeAmount,
+              documentId: docToDelete.id,
+              documentNumber: docToDelete.documentNumber,
+              documentType: docToDelete.documentType,
+              transactionType,
+              reason: 'document_deletion',
+            });
+          }
         }
       }
 
@@ -385,17 +519,37 @@ function AppContent() {
       if (docToDelete.documentType === 'receipt' && docToDelete.linkedInvoiceId) {
         // Mark invoice back to issued status
         await SupabaseService.updateDocument(docToDelete.linkedInvoiceId, { status: 'issued' });
+        const linkedInvoice = documents.find(doc => doc.id === docToDelete.linkedInvoiceId);
         setDocuments(prev => prev.map(doc =>
           doc.id === docToDelete.linkedInvoiceId ? { ...doc, status: 'issued' as const } : doc
         ));
+
+        // Log status change for invoice (reverted from paid to issued)
+        if (user && linkedInvoice) {
+          logDocumentEvent('document:status_changed', user, { ...linkedInvoice, status: 'issued' }, {
+            previousStatus: 'paid',
+            newStatus: 'issued',
+            triggeredBy: `${docToDelete.documentNumber} deleted`,
+          });
+        }
       }
 
       if (docToDelete.documentType === 'statement_of_payment' && docToDelete.linkedVoucherId) {
         // Mark payment voucher back to issued status
         await SupabaseService.updateDocument(docToDelete.linkedVoucherId, { status: 'issued' });
+        const linkedVoucher = documents.find(doc => doc.id === docToDelete.linkedVoucherId);
         setDocuments(prev => prev.map(doc =>
           doc.id === docToDelete.linkedVoucherId ? { ...doc, status: 'issued' as const } : doc
         ));
+
+        // Log status change for payment voucher (reverted from completed to issued)
+        if (user && linkedVoucher) {
+          logDocumentEvent('document:status_changed', user, { ...linkedVoucher, status: 'issued' }, {
+            previousStatus: 'completed',
+            newStatus: 'issued',
+            triggeredBy: `${docToDelete.documentNumber} deleted`,
+          });
+        }
       }
 
       // Delete the document from Supabase
@@ -524,32 +678,6 @@ function AppContent() {
                 <Download className="w-4 h-4 mr-2" />
                 Export
               </Button>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={documents.length === 0}
-                  >
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Clear All
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Clear All Documents?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This action cannot be undone. All {documents.length} document{documents.length !== 1 ? 's' : ''} will be permanently deleted from local storage.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleClearAll} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                      Delete All
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
               <Button
                 variant="outline"
                 size="sm"
@@ -575,7 +703,18 @@ function AppContent() {
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {showSettings ? (
-          <Settings onBack={() => setShowSettings(false)} />
+          <Settings
+            onBack={async () => {
+              setShowSettings(false);
+              // Reload company settings after closing Settings
+              try {
+                const company = await SupabaseService.getOrCreateDefaultCompany();
+                setAllowNegativeBalance(company.allow_negative_balance || false);
+              } catch (error) {
+                console.error('Failed to reload company settings:', error);
+              }
+            }}
+          />
         ) : (
           <>
         {/* Stats Overview */}
@@ -616,9 +755,10 @@ function AppContent() {
 
         {selectedType === null ? (
           <Tabs defaultValue="documents" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="documents">Documents</TabsTrigger>
               <TabsTrigger value="accounts">Accounts</TabsTrigger>
+              <TabsTrigger value="bookings">Bookings</TabsTrigger>
             </TabsList>
             
             <TabsContent value="documents" className="space-y-6">
@@ -677,6 +817,12 @@ function AppContent() {
                     onAccountClick={(account) => setSelectedAccount(account)}
                   />
                 </>
+              )}
+            </TabsContent>
+
+            <TabsContent value="bookings" className="space-y-6">
+              {companyId && (
+                <BookingManagement companyId={companyId} />
               )}
             </TabsContent>
           </Tabs>

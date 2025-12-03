@@ -7,7 +7,8 @@
  * - b2b: Partner/agent pricing
  * - both: Full internal review with profit margins
  *
- * Includes all 6 categories with line items, cost summaries, and notes.
+ * Design aligned with invoice template (classic, professional style).
+ * Company info sourced from Supabase settings.
  */
 
 const CATEGORY_LABELS = {
@@ -28,22 +29,13 @@ const CATEGORY_ICONS = {
   accommodation: '🏨'
 };
 
-const CATEGORY_UNITS = {
-  transportation: 'trip(s)',
-  meals: 'meal(s)',
-  entrance: 'ticket(s)',
-  tourGuide: 'day(s)',
-  flights: 'flight(s)',
-  accommodation: 'night(s)'
-};
-
-const STATUS_COLORS = {
-  draft: '#8C8680',
-  planning: '#B8963F',
-  confirmed: '#4A7A5A',
-  in_progress: '#4A5A7A',
-  completed: '#1A1815',
-  cancelled: '#C75B4A'
+const STATUS_LABELS = {
+  draft: 'DRAFT',
+  planning: 'PLANNING',
+  confirmed: 'CONFIRMED',
+  in_progress: 'IN PROGRESS',
+  completed: 'COMPLETED',
+  cancelled: 'CANCELLED'
 };
 
 const PRICING_DISPLAY_OPTIONS = ['none', 'internal', 'b2b', 'both'];
@@ -72,25 +64,25 @@ function formatNumber(num) {
   return num.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
+function formatNumberDecimal(num) {
+  if (num === null || num === undefined) return '0.00';
+  return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 function calculateDaysBetween(startDate, endDate) {
   if (!startDate || !endDate) return null;
   const start = new Date(startDate);
   const end = new Date(endDate);
   const diffTime = Math.abs(end - start);
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // Include both start and end
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
   return diffDays;
 }
 
-function getStatusBadgeColor(status) {
-  return STATUS_COLORS[status] || STATUS_COLORS.draft;
-}
-
 function getStatusLabel(status) {
-  if (!status) return 'DRAFT';
-  return status.toUpperCase().replace('_', ' ');
+  return STATUS_LABELS[status] || 'DRAFT';
 }
 
-function getWatermark(pricingDisplay) {
+function getWatermarkText(pricingDisplay) {
   switch (pricingDisplay) {
     case 'internal':
       return 'INTERNAL COST - CONFIDENTIAL';
@@ -114,7 +106,6 @@ function getCategoryTotal(booking, categoryKey, isB2B = false) {
 }
 
 function generateCategorySection(categoryKey, items, pricingDisplay, includeEmptyCategories) {
-  // Skip empty categories if not configured to show them
   if (!includeEmptyCategories && items.length === 0) {
     return '';
   }
@@ -136,143 +127,136 @@ function generateCategorySection(categoryKey, items, pricingDisplay, includeEmpt
 
   // Generate table headers based on pricing option
   let tableHeaders = '';
+  let colCount = 5;
+
   if (pricingDisplay === 'none') {
     tableHeaders = `
-      <th class="row-num">#</th>
-      <th class="date-col">Date</th>
-      <th class="description-col">Description</th>
-      <th class="qty-col">Qty</th>
-      <th class="notes-col">Notes</th>
+      <th style="width: 5%">#</th>
+      <th style="width: 12%">Date</th>
+      <th style="width: 43%">Description</th>
+      <th style="width: 10%">Qty</th>
+      <th style="width: 30%">Notes</th>
     `;
+    colCount = 5;
   } else if (pricingDisplay === 'internal') {
     tableHeaders = `
-      <th class="row-num">#</th>
-      <th class="date-col">Date</th>
-      <th class="description-col">Description</th>
-      <th class="qty-col">Qty</th>
-      <th class="price-col">Internal/Unit</th>
-      <th class="price-col">Internal Total</th>
-      <th class="notes-col">Notes</th>
+      <th style="width: 5%">#</th>
+      <th style="width: 10%">Date</th>
+      <th style="width: 33%">Description</th>
+      <th style="width: 8%">Qty</th>
+      <th style="width: 12%">Unit Price</th>
+      <th style="width: 12%">Total</th>
+      <th style="width: 20%">Notes</th>
     `;
+    colCount = 7;
   } else if (pricingDisplay === 'b2b') {
     tableHeaders = `
-      <th class="row-num">#</th>
-      <th class="date-col">Date</th>
-      <th class="description-col">Description</th>
-      <th class="qty-col">Qty</th>
-      <th class="price-col">B2B/Unit</th>
-      <th class="price-col">B2B Total</th>
-      <th class="notes-col">Notes</th>
+      <th style="width: 5%">#</th>
+      <th style="width: 10%">Date</th>
+      <th style="width: 33%">Description</th>
+      <th style="width: 8%">Qty</th>
+      <th style="width: 12%">Unit Price</th>
+      <th style="width: 12%">Total</th>
+      <th style="width: 20%">Notes</th>
     `;
+    colCount = 7;
   } else if (pricingDisplay === 'both') {
     tableHeaders = `
-      <th class="row-num">#</th>
-      <th class="date-col">Date</th>
-      <th class="description-col">Description</th>
-      <th class="qty-col">Qty</th>
-      <th class="price-col">Internal/Unit</th>
-      <th class="price-col">B2B/Unit</th>
-      <th class="price-col">Internal Total</th>
-      <th class="price-col">B2B Total</th>
-      <th class="price-col">Profit</th>
+      <th style="width: 4%">#</th>
+      <th style="width: 9%">Date</th>
+      <th style="width: 27%">Description</th>
+      <th style="width: 6%">Qty</th>
+      <th style="width: 11%">Internal</th>
+      <th style="width: 11%">B2B</th>
+      <th style="width: 11%">Int. Total</th>
+      <th style="width: 11%">B2B Total</th>
+      <th style="width: 10%">Profit</th>
     `;
+    colCount = 9;
   }
 
-  // Generate item rows based on pricing option
+  // Generate item rows
   const itemsHTML = sortedItems.map((item, index) => {
     const profit = (item.b2bTotal || 0) - (item.internalTotal || 0);
 
     if (pricingDisplay === 'none') {
       return `
-        <tr class="${index % 2 === 0 ? 'row-even' : 'row-odd'}">
-          <td class="row-num">${index + 1}</td>
-          <td class="date-col">${formatDateShort(item.date)}</td>
-          <td class="description-col">${item.description || '-'}</td>
-          <td class="qty-col">${item.quantity || 1}</td>
-          <td class="notes-col">${item.notes || '-'}</td>
+        <tr>
+          <td style="text-align: center">${index + 1}</td>
+          <td style="text-align: center">${formatDateShort(item.date)}</td>
+          <td>${item.description || '-'}</td>
+          <td style="text-align: center">${item.quantity || 1}</td>
+          <td style="font-size: 8pt; color: #666">${item.notes || '-'}</td>
         </tr>
       `;
     } else if (pricingDisplay === 'internal') {
       return `
-        <tr class="${index % 2 === 0 ? 'row-even' : 'row-odd'}">
-          <td class="row-num">${index + 1}</td>
-          <td class="date-col">${formatDateShort(item.date)}</td>
-          <td class="description-col">${item.description || '-'}</td>
-          <td class="qty-col">${item.quantity || 1}</td>
-          <td class="price-col">¥${formatNumber(item.internalPrice || 0)}</td>
-          <td class="price-col">¥${formatNumber(item.internalTotal || 0)}</td>
-          <td class="notes-col">${item.notes || '-'}</td>
+        <tr>
+          <td style="text-align: center">${index + 1}</td>
+          <td style="text-align: center">${formatDateShort(item.date)}</td>
+          <td>${item.description || '-'}</td>
+          <td style="text-align: center">${item.quantity || 1}</td>
+          <td style="text-align: right">¥${formatNumber(item.internalPrice || 0)}</td>
+          <td style="text-align: right">¥${formatNumber(item.internalTotal || 0)}</td>
+          <td style="font-size: 8pt; color: #666">${item.notes || '-'}</td>
         </tr>
       `;
     } else if (pricingDisplay === 'b2b') {
       return `
-        <tr class="${index % 2 === 0 ? 'row-even' : 'row-odd'}">
-          <td class="row-num">${index + 1}</td>
-          <td class="date-col">${formatDateShort(item.date)}</td>
-          <td class="description-col">${item.description || '-'}</td>
-          <td class="qty-col">${item.quantity || 1}</td>
-          <td class="price-col">¥${formatNumber(item.b2bPrice || 0)}</td>
-          <td class="price-col">¥${formatNumber(item.b2bTotal || 0)}</td>
-          <td class="notes-col">${item.notes || '-'}</td>
+        <tr>
+          <td style="text-align: center">${index + 1}</td>
+          <td style="text-align: center">${formatDateShort(item.date)}</td>
+          <td>${item.description || '-'}</td>
+          <td style="text-align: center">${item.quantity || 1}</td>
+          <td style="text-align: right">¥${formatNumber(item.b2bPrice || 0)}</td>
+          <td style="text-align: right">¥${formatNumber(item.b2bTotal || 0)}</td>
+          <td style="font-size: 8pt; color: #666">${item.notes || '-'}</td>
         </tr>
       `;
     } else if (pricingDisplay === 'both') {
       return `
-        <tr class="${index % 2 === 0 ? 'row-even' : 'row-odd'}">
-          <td class="row-num">${index + 1}</td>
-          <td class="date-col">${formatDateShort(item.date)}</td>
-          <td class="description-col">${item.description || '-'}</td>
-          <td class="qty-col">${item.quantity || 1}</td>
-          <td class="price-col">¥${formatNumber(item.internalPrice || 0)}</td>
-          <td class="price-col">¥${formatNumber(item.b2bPrice || 0)}</td>
-          <td class="price-col">¥${formatNumber(item.internalTotal || 0)}</td>
-          <td class="price-col">¥${formatNumber(item.b2bTotal || 0)}</td>
-          <td class="price-col profit-col">¥${formatNumber(profit)}</td>
+        <tr>
+          <td style="text-align: center">${index + 1}</td>
+          <td style="text-align: center">${formatDateShort(item.date)}</td>
+          <td>${item.description || '-'}</td>
+          <td style="text-align: center">${item.quantity || 1}</td>
+          <td style="text-align: right">¥${formatNumber(item.internalPrice || 0)}</td>
+          <td style="text-align: right">¥${formatNumber(item.b2bPrice || 0)}</td>
+          <td style="text-align: right">¥${formatNumber(item.internalTotal || 0)}</td>
+          <td style="text-align: right">¥${formatNumber(item.b2bTotal || 0)}</td>
+          <td style="text-align: right; color: #065f46; font-weight: bold">¥${formatNumber(profit)}</td>
         </tr>
       `;
     }
   }).join('');
 
-  // Generate subtotal row if pricing is shown
+  // Generate subtotal row
   let subtotalRow = '';
   if (pricingDisplay !== 'none' && items.length > 0) {
     if (pricingDisplay === 'internal') {
       subtotalRow = `
         <tr class="subtotal-row">
-          <td class="row-num"></td>
-          <td class="date-col"></td>
-          <td class="description-col"><strong>Subtotal</strong></td>
-          <td class="qty-col"></td>
-          <td class="price-col"></td>
-          <td class="price-col"><strong>¥${formatNumber(internalTotal)}</strong></td>
-          <td class="notes-col"></td>
+          <td colspan="5" style="text-align: right"><strong>Subtotal</strong></td>
+          <td style="text-align: right"><strong>¥${formatNumber(internalTotal)}</strong></td>
+          <td></td>
         </tr>
       `;
     } else if (pricingDisplay === 'b2b') {
       subtotalRow = `
         <tr class="subtotal-row">
-          <td class="row-num"></td>
-          <td class="date-col"></td>
-          <td class="description-col"><strong>Subtotal</strong></td>
-          <td class="qty-col"></td>
-          <td class="price-col"></td>
-          <td class="price-col"><strong>¥${formatNumber(b2bTotal)}</strong></td>
-          <td class="notes-col"></td>
+          <td colspan="5" style="text-align: right"><strong>Subtotal</strong></td>
+          <td style="text-align: right"><strong>¥${formatNumber(b2bTotal)}</strong></td>
+          <td></td>
         </tr>
       `;
     } else if (pricingDisplay === 'both') {
       const profit = b2bTotal - internalTotal;
       subtotalRow = `
         <tr class="subtotal-row">
-          <td class="row-num"></td>
-          <td class="date-col"></td>
-          <td class="description-col"><strong>Subtotal</strong></td>
-          <td class="qty-col"></td>
-          <td class="price-col"></td>
-          <td class="price-col"></td>
-          <td class="price-col"><strong>¥${formatNumber(internalTotal)}</strong></td>
-          <td class="price-col"><strong>¥${formatNumber(b2bTotal)}</strong></td>
-          <td class="price-col profit-col"><strong>¥${formatNumber(profit)}</strong></td>
+          <td colspan="6" style="text-align: right"><strong>Subtotal</strong></td>
+          <td style="text-align: right"><strong>¥${formatNumber(internalTotal)}</strong></td>
+          <td style="text-align: right"><strong>¥${formatNumber(b2bTotal)}</strong></td>
+          <td style="text-align: right; color: #065f46"><strong>¥${formatNumber(profit)}</strong></td>
         </tr>
       `;
     }
@@ -280,20 +264,19 @@ function generateCategorySection(categoryKey, items, pricingDisplay, includeEmpt
 
   const emptyMessage = items.length === 0 ? `
     <tr>
-      <td colspan="10" class="empty-category">No items in this category</td>
+      <td colspan="${colCount}" style="text-align: center; color: #999; font-style: italic; padding: 16pt">
+        No items in this category
+      </td>
     </tr>
   ` : '';
 
   return `
     <div class="category-section">
       <div class="category-header">
-        <div class="category-title">
-          <span class="category-icon">${categoryIcon}</span>
-          <span class="category-name">${categoryLabel}</span>
-        </div>
-        <div class="category-badge">${items.length} item${items.length !== 1 ? 's' : ''}</div>
+        <span class="category-name">${categoryLabel}</span>
+        <span class="category-count">${items.length} item${items.length !== 1 ? 's' : ''}</span>
       </div>
-      <table class="category-table">
+      <table class="items-table">
         <thead>
           <tr>${tableHeaders}</tr>
         </thead>
@@ -309,7 +292,7 @@ function generateCategorySection(categoryKey, items, pricingDisplay, includeEmpt
 
 function generateCostSummary(booking, pricingDisplay, showProfitMargin, showExchangeRate) {
   if (pricingDisplay === 'none') {
-    return ''; // No cost summary if pricing is hidden
+    return '';
   }
 
   const categories = ['transportation', 'meals', 'entrance', 'tourGuide', 'flights', 'accommodation'];
@@ -324,21 +307,21 @@ function generateCostSummary(booking, pricingDisplay, showProfitMargin, showExch
 
     let priceColumns = '';
     if (pricingDisplay === 'internal') {
-      priceColumns = `<td class="price-col">¥${formatNumber(internalTotal)}</td>`;
+      priceColumns = `<td style="text-align: right">¥${formatNumber(internalTotal)}</td>`;
     } else if (pricingDisplay === 'b2b') {
-      priceColumns = `<td class="price-col">¥${formatNumber(b2bTotal)}</td>`;
+      priceColumns = `<td style="text-align: right">¥${formatNumber(b2bTotal)}</td>`;
     } else if (pricingDisplay === 'both') {
       priceColumns = `
-        <td class="price-col">¥${formatNumber(internalTotal)}</td>
-        <td class="price-col">¥${formatNumber(b2bTotal)}</td>
-        <td class="price-col profit-col">¥${formatNumber(profit)}</td>
+        <td style="text-align: right">¥${formatNumber(internalTotal)}</td>
+        <td style="text-align: right">¥${formatNumber(b2bTotal)}</td>
+        <td style="text-align: right; color: #065f46">¥${formatNumber(profit)}</td>
       `;
     }
 
     return `
       <tr>
-        <td class="category-col">${categoryLabel}</td>
-        <td class="items-col">${items.length}</td>
+        <td>${categoryLabel}</td>
+        <td style="text-align: center">${items.length}</td>
         ${priceColumns}
       </tr>
     `;
@@ -351,14 +334,14 @@ function generateCostSummary(booking, pricingDisplay, showProfitMargin, showExch
 
   let totalPriceColumns = '';
   if (pricingDisplay === 'internal') {
-    totalPriceColumns = `<td class="price-col"><strong>¥${formatNumber(grandTotalInternal)}</strong></td>`;
+    totalPriceColumns = `<td style="text-align: right"><strong>¥${formatNumber(grandTotalInternal)}</strong></td>`;
   } else if (pricingDisplay === 'b2b') {
-    totalPriceColumns = `<td class="price-col"><strong>¥${formatNumber(grandTotalB2B)}</strong></td>`;
+    totalPriceColumns = `<td style="text-align: right"><strong>¥${formatNumber(grandTotalB2B)}</strong></td>`;
   } else if (pricingDisplay === 'both') {
     totalPriceColumns = `
-      <td class="price-col"><strong>¥${formatNumber(grandTotalInternal)}</strong></td>
-      <td class="price-col"><strong>¥${formatNumber(grandTotalB2B)}</strong></td>
-      <td class="price-col profit-col"><strong>¥${formatNumber(totalProfit)}</strong></td>
+      <td style="text-align: right"><strong>¥${formatNumber(grandTotalInternal)}</strong></td>
+      <td style="text-align: right"><strong>¥${formatNumber(grandTotalB2B)}</strong></td>
+      <td style="text-align: right; color: #065f46"><strong>¥${formatNumber(totalProfit)}</strong></td>
     `;
   }
 
@@ -368,31 +351,31 @@ function generateCostSummary(booking, pricingDisplay, showProfitMargin, showExch
   let summaryHeaders = '';
   if (pricingDisplay === 'internal') {
     summaryHeaders = `
-      <th class="category-col">Category</th>
-      <th class="items-col">Items</th>
-      <th class="price-col">Internal (JPY)</th>
+      <th style="width: 50%">Category</th>
+      <th style="width: 15%; text-align: center">Items</th>
+      <th style="width: 35%; text-align: right">Internal (JPY)</th>
     `;
   } else if (pricingDisplay === 'b2b') {
     summaryHeaders = `
-      <th class="category-col">Category</th>
-      <th class="items-col">Items</th>
-      <th class="price-col">B2B (JPY)</th>
+      <th style="width: 50%">Category</th>
+      <th style="width: 15%; text-align: center">Items</th>
+      <th style="width: 35%; text-align: right">B2B (JPY)</th>
     `;
   } else if (pricingDisplay === 'both') {
     summaryHeaders = `
-      <th class="category-col">Category</th>
-      <th class="items-col">Items</th>
-      <th class="price-col">Internal (JPY)</th>
-      <th class="price-col">B2B (JPY)</th>
-      <th class="price-col">Profit (JPY)</th>
+      <th style="width: 35%">Category</th>
+      <th style="width: 10%; text-align: center">Items</th>
+      <th style="width: 18%; text-align: right">Internal (JPY)</th>
+      <th style="width: 18%; text-align: right">B2B (JPY)</th>
+      <th style="width: 19%; text-align: right">Profit (JPY)</th>
     `;
   }
 
-  // Exchange rate row
+  // Exchange rate
   const exchangeRate = booking.exchangeRate || 0.031;
   const exchangeRateRow = showExchangeRate ? `
     <tr class="exchange-rate-row">
-      <td colspan="${pricingDisplay === 'both' ? 5 : 3}" class="exchange-rate-cell">
+      <td colspan="${pricingDisplay === 'both' ? 5 : 3}" style="text-align: center; font-style: italic; color: #666; font-size: 8pt">
         Exchange Rate: ¥1 = MYR ${exchangeRate.toFixed(4)}
       </td>
     </tr>
@@ -405,31 +388,30 @@ function generateCostSummary(booking, pricingDisplay, showProfitMargin, showExch
 
   let myrPriceColumns = '';
   if (pricingDisplay === 'internal') {
-    myrPriceColumns = `<td class="price-col"><strong>RM ${formatNumber(grandTotalMYRInternal)}</strong></td>`;
+    myrPriceColumns = `<td style="text-align: right"><strong>RM ${formatNumberDecimal(grandTotalMYRInternal)}</strong></td>`;
   } else if (pricingDisplay === 'b2b') {
-    myrPriceColumns = `<td class="price-col"><strong>RM ${formatNumber(grandTotalMYRB2B)}</strong></td>`;
+    myrPriceColumns = `<td style="text-align: right"><strong>RM ${formatNumberDecimal(grandTotalMYRB2B)}</strong></td>`;
   } else if (pricingDisplay === 'both') {
     myrPriceColumns = `
-      <td class="price-col"><strong>RM ${formatNumber(grandTotalMYRInternal)}</strong></td>
-      <td class="price-col"><strong>RM ${formatNumber(grandTotalMYRB2B)}</strong></td>
-      <td class="price-col profit-col"><strong>RM ${formatNumber(totalProfitMYR)}</strong></td>
+      <td style="text-align: right"><strong>RM ${formatNumberDecimal(grandTotalMYRInternal)}</strong></td>
+      <td style="text-align: right"><strong>RM ${formatNumberDecimal(grandTotalMYRB2B)}</strong></td>
+      <td style="text-align: right; color: #065f46"><strong>RM ${formatNumberDecimal(totalProfitMYR)}</strong></td>
     `;
   }
 
-  // Profit margin row (only for 'both' mode)
+  // Profit margin row
   const profitMarginRow = showProfitMargin && pricingDisplay === 'both' ? `
     <tr class="profit-margin-row">
-      <td class="category-col"><strong>Expected Profit</strong></td>
-      <td class="items-col"></td>
-      <td class="price-col"></td>
-      <td class="price-col"></td>
-      <td class="price-col profit-col"><strong>RM ${formatNumber(totalProfitMYR)}</strong></td>
+      <td colspan="2"><strong>Expected Profit</strong></td>
+      <td></td>
+      <td></td>
+      <td style="text-align: right; background: #d1fae5; color: #065f46"><strong>RM ${formatNumberDecimal(totalProfitMYR)}</strong></td>
     </tr>
   ` : '';
 
   return `
-    <div class="cost-summary-section">
-      <div class="section-title">COST SUMMARY</div>
+    <div class="summary-section">
+      <div class="section-header">COST SUMMARY</div>
       <table class="summary-table">
         <thead>
           <tr>${summaryHeaders}</tr>
@@ -439,14 +421,14 @@ function generateCostSummary(booking, pricingDisplay, showProfitMargin, showExch
         </tbody>
         <tfoot>
           <tr class="totals-row">
-            <td class="category-col"><strong>TOTAL (JPY)</strong></td>
-            <td class="items-col"><strong>${totalItems}</strong></td>
+            <td><strong>TOTAL (JPY)</strong></td>
+            <td style="text-align: center"><strong>${totalItems}</strong></td>
             ${totalPriceColumns}
           </tr>
           ${exchangeRateRow}
           <tr class="totals-row">
-            <td class="category-col"><strong>TOTAL (MYR)</strong></td>
-            <td class="items-col"></td>
+            <td><strong>TOTAL (MYR)</strong></td>
+            <td></td>
             ${myrPriceColumns}
           </tr>
           ${profitMarginRow}
@@ -472,16 +454,19 @@ function generateBookingFormHTML(booking, options = {}) {
     throw new Error(`Invalid pricing display option: ${pricingDisplay}`);
   }
 
+  // Company info - sourced from Supabase via companyInfo parameter
+  // No hardcoded defaults here - defaults are in supabaseClient.js
   const company = {
-    name: companyInfo.name || 'WIF JAPAN SDN BHD',
-    address: companyInfo.address || 'Malaysia Office\nKuala Lumpur, Malaysia',
-    tel: companyInfo.tel || '+60-XXX-XXXXXXX',
-    email: companyInfo.email || 'info@wifjapan.com'
+    name: companyInfo.name || 'Company Name',
+    address: companyInfo.address || '',
+    tel: companyInfo.tel || '',
+    email: companyInfo.email || '',
+    registrationNo: companyInfo.registrationNo || '',
+    registeredOffice: companyInfo.registeredOffice || ''
   };
 
-  const statusColor = getStatusBadgeColor(booking.status);
   const statusLabel = getStatusLabel(booking.status);
-  const watermarkText = getWatermark(pricingDisplay);
+  const watermarkText = getWatermarkText(pricingDisplay);
 
   const tripDuration = calculateDaysBetween(booking.tripStartDate, booking.tripEndDate);
   const tripPeriodText = booking.tripEndDate
@@ -501,19 +486,17 @@ function generateBookingFormHTML(booking, options = {}) {
   // Notes section
   const notesSection = includeNotes ? `
     <div class="notes-section">
-      <div class="section-title">NOTES</div>
-      <div class="notes-content">
-        ${booking.notes || '<em>No additional notes</em>'}
-      </div>
+      <div class="notes-header">Notes</div>
+      <div class="notes-content">${booking.notes || '<em style="color: #999">No additional notes</em>'}</div>
     </div>
   ` : '';
 
-  // Watermark
+  // Watermark for confidential documents
   const watermark = watermarkText ? `
     <div class="watermark">${watermarkText}</div>
   ` : '';
 
-  // Print metadata
+  // Print metadata - sourced from printerInfo parameter
   const printDate = printerInfo.printDate || new Date().toISOString();
   const printUser = printerInfo.userName || 'System';
   const printTimezone = printerInfo.timezone || 'GMT+8';
@@ -526,13 +509,10 @@ function generateBookingFormHTML(booking, options = {}) {
     hour12: true
   });
 
-  // Vehicle info (if available)
-  const vehicleInfo = booking.carTypes && booking.carTypes.length > 0 ? `
-    <div class="info-row">
-      <span class="info-label">Vehicles</span>
-      <span class="info-value">${booking.carTypes.join(', ')}</span>
-    </div>
-  ` : '';
+  // Vehicle info
+  const vehicleInfo = booking.carTypes && booking.carTypes.length > 0
+    ? booking.carTypes.join(', ')
+    : '-';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -546,12 +526,12 @@ function generateBookingFormHTML(booking, options = {}) {
         }
 
         body {
-            font-family: 'Helvetica Neue', Arial, sans-serif;
+            font-family: Arial, sans-serif;
             line-height: 1.4;
-            color: #1A1815;
+            color: #000000;
             background-color: white;
             margin: 0;
-            padding: 20pt;
+            padding: 0;
             font-size: 10pt;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
@@ -563,405 +543,291 @@ function generateBookingFormHTML(booking, options = {}) {
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%) rotate(-45deg);
-            font-size: 48pt;
-            color: rgba(199, 91, 74, 0.06);
+            font-size: 24pt;
+            color: rgba(200, 0, 0, 0.08);
             font-weight: bold;
             pointer-events: none;
             z-index: 1000;
             white-space: nowrap;
+            letter-spacing: 3pt;
         }
 
         .document-container {
-            max-width: 800pt;
-            margin: 0 auto;
+            width: 100%;
+            margin: 0;
             background: white;
             position: relative;
             z-index: 1;
         }
 
-        /* Header */
-        .document-header {
-            margin-bottom: 16pt;
-            padding-bottom: 12pt;
-            border-bottom: 2pt solid #1A1815;
-        }
-
-        .header-top {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 10pt;
-        }
-
+        /* Header - Invoice style */
         .document-title {
-            font-size: 20pt;
-            font-weight: 300;
-            letter-spacing: 3pt;
-            color: #1A1815;
-            margin-bottom: 2pt;
+            text-align: center;
+            font-size: 18pt;
+            font-weight: normal;
+            margin-bottom: 6pt;
+            letter-spacing: 4pt;
+            color: #000000;
         }
 
-        .document-subtitle {
-            font-size: 12pt;
-            color: #6B6560;
-            letter-spacing: 2pt;
+        .title-underline {
+            width: 100%;
+            height: 2pt;
+            background: #000000;
+            margin-bottom: 16pt;
         }
 
-        .booking-ref-box {
+        .header-section {
+            display: table;
+            width: 100%;
+            margin-bottom: 16pt;
+        }
+
+        .header-left {
+            display: table-cell;
+            width: 50%;
+            vertical-align: top;
+            padding-right: 24pt;
+        }
+
+        .header-right {
+            display: table-cell;
+            width: 50%;
+            vertical-align: top;
             text-align: right;
         }
 
-        .booking-ref-label {
-            font-size: 8pt;
-            color: #6B6560;
-            text-transform: uppercase;
-            letter-spacing: 0.5pt;
-            margin-bottom: 2pt;
+        .company-info {
+            margin-bottom: 12pt;
         }
 
-        .booking-ref-value {
-            font-size: 16pt;
-            font-weight: 600;
-            color: #B8963F;
-            font-family: 'Courier New', monospace;
+        .company-name {
+            font-size: 14pt;
+            font-weight: normal;
+            margin-bottom: 3pt;
+        }
+
+        .company-details {
+            font-size: 9pt;
+            line-height: 1.4;
+            white-space: pre-line;
+        }
+
+        .date-info {
+            margin-bottom: 12pt;
+        }
+
+        .date-info div {
+            margin-bottom: 3pt;
+            font-size: 10pt;
+        }
+
+        .booking-ref {
+            font-size: 14pt;
+            font-weight: bold;
             margin-bottom: 6pt;
         }
 
         .status-badge {
             display: inline-block;
-            padding: 4pt 10pt;
+            padding: 4pt 8pt;
             border-radius: 4pt;
-            font-size: 8pt;
-            font-weight: 600;
-            letter-spacing: 0.5pt;
-            color: white;
-        }
-
-        .header-bottom {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-top: 10pt;
-        }
-
-        .company-info {
             font-size: 9pt;
-            line-height: 1.5;
-            color: #5C5650;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1pt;
+            background: #e8e8e8;
+            color: #333;
         }
 
-        .company-name {
+        /* Trip Info Box - Invoice style */
+        .trip-info-box {
+            border: 1pt solid #000000;
+            margin-bottom: 16pt;
+        }
+
+        .trip-info-header {
+            background: #e8e8e8;
+            padding: 8pt 12pt;
             font-size: 11pt;
-            font-weight: 600;
-            color: #1A1815;
-            margin-bottom: 4pt;
+            font-weight: bold;
+            border-bottom: 0.5pt solid #000000;
         }
 
-        .created-date {
-            font-size: 8pt;
-            color: #8C8680;
-            text-align: right;
+        .trip-info-content {
+            display: table;
+            width: 100%;
         }
 
-        /* Trip Information */
-        .trip-info-card {
-            background: #FAF8F5;
-            border: 1pt solid #E8E6E2;
-            border-radius: 6pt;
-            padding: 14pt;
-            margin-bottom: 20pt;
+        .trip-info-row {
+            display: table-row;
         }
 
-        .trip-info-title {
-            font-size: 11pt;
-            font-weight: 600;
-            color: #1A1815;
-            letter-spacing: 0.5pt;
-            margin-bottom: 10pt;
-            padding-bottom: 6pt;
-            border-bottom: 1pt solid #E8E6E2;
+        .trip-info-label {
+            display: table-cell;
+            width: 30%;
+            padding: 8pt 12pt;
+            background: #f5f5f5;
+            border-bottom: 0.5pt solid #ddd;
+            font-weight: normal;
         }
 
-        .info-row {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 6pt;
-            font-size: 9pt;
+        .trip-info-value {
+            display: table-cell;
+            width: 70%;
+            padding: 8pt 12pt;
+            border-bottom: 0.5pt solid #ddd;
         }
 
-        .info-row:last-child {
-            margin-bottom: 0;
+        .trip-info-row:last-child .trip-info-label,
+        .trip-info-row:last-child .trip-info-value {
+            border-bottom: none;
         }
 
-        .info-label {
-            color: #6B6560;
-            font-weight: 500;
-        }
-
-        .info-value {
-            font-weight: 600;
-            color: #1A1815;
-            text-align: right;
-            flex: 1;
-            margin-left: 20pt;
-        }
-
-        /* Category Section */
+        /* Category sections */
         .category-section {
-            margin-bottom: 20pt;
+            margin-bottom: 16pt;
             page-break-inside: avoid;
         }
 
         .category-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 8pt;
-            padding-bottom: 6pt;
-            border-bottom: 1pt solid #E8E6E2;
-        }
-
-        .category-title {
+            background: #e8e8e8;
+            padding: 8pt 12pt;
+            border: 1pt solid #000;
+            border-bottom: none;
             display: flex;
             align-items: center;
             gap: 8pt;
         }
 
         .category-icon {
-            font-size: 14pt;
+            font-size: 12pt;
         }
 
         .category-name {
             font-size: 11pt;
-            font-weight: 600;
-            color: #1A1815;
-            letter-spacing: 0.5pt;
+            font-weight: bold;
+            flex: 1;
         }
 
-        .category-badge {
-            background: #B8963F;
-            color: white;
-            font-size: 8pt;
-            font-weight: 600;
-            padding: 3pt 8pt;
-            border-radius: 10pt;
+        .category-count {
+            font-size: 9pt;
+            color: #666;
         }
 
-        /* Tables */
-        .category-table {
+        /* Tables - Invoice style */
+        .items-table {
             width: 100%;
             border-collapse: collapse;
+            border: 1pt solid #000000;
+        }
+
+        .items-table thead {
+            display: table-header-group;
+        }
+
+        .items-table th {
+            background: #e8e8e8;
+            padding: 6pt;
+            border: 0.5pt solid #000000;
             font-size: 9pt;
-        }
-
-        .category-table th {
-            background: #1A1815;
-            color: white;
-            padding: 8pt 6pt;
-            font-size: 7pt;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5pt;
-            text-align: left;
-        }
-
-        .category-table td {
-            padding: 8pt 6pt;
-            border-bottom: 0.5pt solid #E8E6E2;
-            vertical-align: top;
-        }
-
-        .category-table .row-even {
-            background: #FFFFFF;
-        }
-
-        .category-table .row-odd {
-            background: #FAFAF8;
-        }
-
-        .category-table .row-num {
-            width: 5%;
-            text-align: center;
-            color: #8C8680;
-            font-size: 8pt;
-        }
-
-        .category-table th.row-num {
-            color: rgba(255,255,255,0.6);
-        }
-
-        .category-table .date-col {
-            width: 10%;
-            text-align: center;
-            font-family: 'Courier New', monospace;
-            font-size: 8pt;
-        }
-
-        .category-table .description-col {
-            width: 30%;
-        }
-
-        .category-table .qty-col {
-            width: 8%;
+            font-weight: normal;
             text-align: center;
         }
 
-        .category-table .price-col {
-            width: 12%;
-            text-align: right;
-            font-family: 'Courier New', monospace;
-            font-size: 8pt;
+        .items-table td {
+            padding: 6pt;
+            border: 0.5pt solid #000000;
+            font-size: 9pt;
+            line-height: 1.3;
         }
 
-        .category-table .notes-col {
-            width: 25%;
-            font-size: 8pt;
-            color: #5C5650;
-            font-style: italic;
+        .items-table .subtotal-row {
+            background: #f5f5f5;
         }
 
-        .category-table .profit-col {
-            background: rgba(74, 122, 90, 0.05);
-            color: #4A7A5A;
-            font-weight: 600;
+        .items-table .subtotal-row td {
+            border-top: 1pt solid #000;
         }
 
-        .category-table .subtotal-row {
-            background: #F5F3EF;
-            border-top: 1pt solid #1A1815;
-        }
-
-        .category-table .subtotal-row td {
-            padding: 10pt 6pt;
-            font-weight: 600;
-        }
-
-        .empty-category {
-            text-align: center;
-            color: #8C8680;
-            font-style: italic;
-            padding: 16pt !important;
-        }
-
-        /* Cost Summary */
-        .cost-summary-section {
-            margin-top: 24pt;
-            margin-bottom: 20pt;
+        /* Summary section */
+        .summary-section {
+            margin-top: 20pt;
+            margin-bottom: 16pt;
             page-break-inside: avoid;
         }
 
-        .section-title {
-            font-size: 12pt;
-            font-weight: 600;
-            color: #1A1815;
-            letter-spacing: 1pt;
-            margin-bottom: 10pt;
-            padding-bottom: 6pt;
-            border-bottom: 2pt solid #1A1815;
+        .section-header {
+            background: #e8e8e8;
+            padding: 8pt 12pt;
+            font-size: 11pt;
+            font-weight: bold;
+            border: 1pt solid #000;
+            border-bottom: none;
         }
 
         .summary-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 9pt;
+            border: 1pt solid #000000;
         }
 
         .summary-table th {
-            background: #1A1815;
-            color: white;
-            padding: 10pt 8pt;
-            font-size: 8pt;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5pt;
-            text-align: left;
+            background: #e8e8e8;
+            padding: 8pt;
+            border: 0.5pt solid #000000;
+            font-size: 9pt;
+            font-weight: normal;
         }
 
         .summary-table td {
-            padding: 10pt 8pt;
-            border-bottom: 0.5pt solid #E8E6E2;
-        }
-
-        .summary-table .category-col {
-            width: 40%;
-        }
-
-        .summary-table .items-col {
-            width: 10%;
-            text-align: center;
-        }
-
-        .summary-table .price-col {
-            width: 15%;
-            text-align: right;
-            font-family: 'Courier New', monospace;
+            padding: 8pt;
+            border: 0.5pt solid #000000;
+            font-size: 9pt;
         }
 
         .summary-table .totals-row {
-            background: #FAF8F5;
-            border-top: 2pt solid #1A1815;
+            background: #f5f5f5;
         }
 
         .summary-table .totals-row td {
-            padding: 12pt 8pt;
-            font-size: 10pt;
+            border-top: 1pt solid #000;
         }
 
-        .summary-table .exchange-rate-row {
-            background: #FEF6F5;
+        .summary-table .exchange-rate-row td {
+            background: #fafafa;
+            border-top: none;
+            padding: 4pt 8pt;
         }
 
-        .summary-table .exchange-rate-cell {
-            text-align: center;
-            color: #6B6560;
-            font-size: 8pt;
-            font-style: italic;
-            padding: 8pt !important;
+        .summary-table .profit-margin-row td {
+            background: #d1fae5;
         }
 
-        .summary-table .profit-margin-row {
-            background: rgba(74, 122, 90, 0.1);
-        }
-
-        /* Notes Section */
+        /* Notes section - Invoice style */
         .notes-section {
             margin-top: 20pt;
-            margin-bottom: 20pt;
-            border: 1pt solid #E8E6E2;
-            border-radius: 6pt;
-            overflow: hidden;
+            border: 1pt solid #000000;
             page-break-inside: avoid;
         }
 
+        .notes-header {
+            background: #e8e8e8;
+            padding: 8pt 12pt;
+            font-size: 11pt;
+            font-weight: bold;
+            border-bottom: 0.5pt solid #000000;
+        }
+
         .notes-content {
-            padding: 14pt;
-            min-height: 50pt;
+            padding: 12pt;
+            min-height: 40pt;
             font-size: 9pt;
-            line-height: 1.6;
-            color: #5C5650;
+            line-height: 1.5;
             white-space: pre-wrap;
         }
 
-        /* Footer */
-        .document-footer {
-            margin-top: 20pt;
-            padding-top: 12pt;
-            border-top: 1pt solid #E8E6E2;
-            text-align: center;
-            font-size: 8pt;
-            color: #8C8680;
-        }
-
-        .print-metadata {
-            display: flex;
-            justify-content: center;
-            gap: 20pt;
-            margin-bottom: 6pt;
-        }
-
-        .print-info {
-            font-style: italic;
-        }
+        /* Footer is handled by Puppeteer page footer - not in HTML */
 
         /* Print specific */
         @media print {
@@ -977,7 +843,7 @@ function generateBookingFormHTML(booking, options = {}) {
                 page-break-inside: avoid;
             }
 
-            .cost-summary-section {
+            .summary-section {
                 page-break-inside: avoid;
             }
 
@@ -991,50 +857,55 @@ function generateBookingFormHTML(booking, options = {}) {
     ${watermark}
     <div class="document-container">
         <!-- Header -->
-        <div class="document-header">
-            <div class="header-top">
-                <div>
-                    <div class="document-title">BOOKING FORM</div>
-                    <div class="document-subtitle">予約フォーム</div>
-                </div>
-                <div class="booking-ref-box">
-                    <div class="booking-ref-label">Booking Reference</div>
-                    <div class="booking-ref-value">${booking.bookingCode || 'N/A'}</div>
-                    <span class="status-badge" style="background-color: ${statusColor};">● ${statusLabel}</span>
-                </div>
-            </div>
-            <div class="header-bottom">
+        <div class="document-title">BOOKING FORM</div>
+        <div class="title-underline"></div>
+
+        <div class="header-section">
+            <div class="header-left">
                 <div class="company-info">
                     <div class="company-name">${company.name}</div>
-                    <div>${company.address.replace(/\n/g, '<br>')}</div>
-                    <div>Tel: ${company.tel} | Email: ${company.email}</div>
+                    <div class="company-details">${company.address}
+Tel: ${company.tel}
+Email: ${company.email}</div>
                 </div>
-                <div class="created-date">
-                    Created: ${formatDate(booking.createdAt || new Date().toISOString())}
+            </div>
+
+            <div class="header-right">
+                <div class="date-info">
+                    <div class="booking-ref">${booking.bookingCode || 'N/A'}</div>
+                    <div>Issue Date: ${formatDate(booking.createdAt || new Date().toISOString())}</div>
+                    <div style="margin-top: 6pt">
+                        <span class="status-badge">${statusLabel}</span>
+                    </div>
                 </div>
             </div>
         </div>
 
         <!-- Trip Information -->
-        <div class="trip-info-card">
-            <div class="trip-info-title">TRIP INFORMATION</div>
-            <div class="info-row">
-                <span class="info-label">Guest Name</span>
-                <span class="info-value">${booking.guestName || '-'}</span>
+        <div class="trip-info-box">
+            <div class="trip-info-header">TRIP INFORMATION</div>
+            <div class="trip-info-content">
+                <div class="trip-info-row">
+                    <div class="trip-info-label">Guest Name</div>
+                    <div class="trip-info-value"><strong>${booking.guestName || '-'}</strong></div>
+                </div>
+                <div class="trip-info-row">
+                    <div class="trip-info-label">Trip Period</div>
+                    <div class="trip-info-value">${tripPeriodText}</div>
+                </div>
+                <div class="trip-info-row">
+                    <div class="trip-info-label">Number of Pax</div>
+                    <div class="trip-info-value">${booking.numberOfPax || '-'}</div>
+                </div>
+                <div class="trip-info-row">
+                    <div class="trip-info-label">Country</div>
+                    <div class="trip-info-value">${booking.country || '-'}</div>
+                </div>
+                <div class="trip-info-row">
+                    <div class="trip-info-label">Vehicles</div>
+                    <div class="trip-info-value">${vehicleInfo}</div>
+                </div>
             </div>
-            <div class="info-row">
-                <span class="info-label">Trip Period</span>
-                <span class="info-value">${tripPeriodText}</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">Number of Pax</span>
-                <span class="info-value">${booking.numberOfPax || '-'}</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">Country</span>
-                <span class="info-value">${booking.country || '-'}</span>
-            </div>
-            ${vehicleInfo}
         </div>
 
         <!-- Category Sections -->
@@ -1046,14 +917,8 @@ function generateBookingFormHTML(booking, options = {}) {
         <!-- Notes -->
         ${notesSection}
 
-        <!-- Footer -->
-        <div class="document-footer">
-            <div class="print-metadata">
-                <span class="print-info">Printed by: ${printUser}</span>
-                <span class="print-info">${printDateTime} (${printTimezone})</span>
-            </div>
-            <div>This is an official booking document from ${company.name}</div>
-        </div>
+        <!-- Footer is handled by Puppeteer page footer in index.js -->
+        <!-- This ensures consistent footer on every page with page numbers -->
     </div>
 </body>
 </html>`;
