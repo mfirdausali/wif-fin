@@ -366,6 +366,11 @@ export function getPermissionErrorMessage(permission: Permission): string {
     'system:settings': 'You do not have permission to access system settings',
     'system:audit_logs': 'You do not have permission to view audit logs',
     'system:export_data': 'You do not have permission to export data',
+    'bookings:view': 'You do not have permission to view bookings',
+    'bookings:create': 'You do not have permission to create bookings',
+    'bookings:edit': 'You do not have permission to edit bookings',
+    'bookings:delete': 'You do not have permission to delete bookings',
+    'bookings:print': 'You do not have permission to print bookings',
   };
   return messages[permission] || 'You do not have permission to perform this action';
 }

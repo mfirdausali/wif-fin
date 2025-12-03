@@ -10,7 +10,7 @@ import { PaymentVoucherForm } from './PaymentVoucherForm';
 import { DocumentList } from './DocumentList';
 import { BookingManagement } from './BookingManagement';
 import { useAuth } from '../contexts/AuthContext';
-import { Document, DocumentType, PaymentVoucher } from '../types/document';
+import { Document, PaymentVoucher } from '../types/document';
 import { Account } from '../types/account';
 import { logAuthEvent, logDocumentEvent } from '../services/activityLogService';
 import { Button } from './ui/button';
@@ -28,7 +28,6 @@ export function OperationsApp() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [showVoucherForm, setShowVoucherForm] = useState(false);
   const [editingVoucher, setEditingVoucher] = useState<PaymentVoucher | null>(null);
-  const [dataLoaded, setDataLoaded] = useState(false);
 
   // Handle logout
   const handleLogout = () => {
@@ -53,11 +52,9 @@ export function OperationsApp() {
 
         setDocuments(loadedDocs);
         setAccounts(loadedAccounts);
-        setDataLoaded(true);
       } catch (error) {
         console.error('Failed to load data:', error);
         toast.error('Failed to load data');
-        setDataLoaded(true);
       }
     }
 
@@ -77,10 +74,12 @@ export function OperationsApp() {
       if (editingVoucher) {
         // Update existing voucher
         const updatedDoc = await SupabaseService.updateDocument(editingVoucher.id, document);
-        setDocuments(prev => prev.map(doc => doc.id === updatedDoc.id ? updatedDoc : doc));
+        if (updatedDoc) {
+          setDocuments(prev => prev.map(doc => doc.id === updatedDoc.id ? updatedDoc : doc));
 
-        if (user) {
-          logDocumentEvent('document:updated', user, updatedDoc);
+          if (user) {
+            logDocumentEvent('document:updated', user, updatedDoc);
+          }
         }
 
         toast.success('Payment Voucher updated');
@@ -115,7 +114,7 @@ export function OperationsApp() {
   const voucherStats = {
     total: paymentVouchers.length,
     draft: paymentVouchers.filter(d => d.status === 'draft').length,
-    pending: paymentVouchers.filter(d => d.status === 'pending').length,
+    pending: paymentVouchers.filter(d => d.status === 'issued').length,
     completed: paymentVouchers.filter(d => d.status === 'completed').length,
   };
 
@@ -238,7 +237,6 @@ export function OperationsApp() {
               <DocumentList
                 documents={paymentVouchers}
                 onEdit={handleEditVoucher}
-                filterTypes={['payment_voucher']}
               />
             </TabsContent>
 

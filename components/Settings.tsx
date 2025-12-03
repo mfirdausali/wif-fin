@@ -75,6 +75,7 @@ export function Settings({ onBack }: SettingsProps) {
       manager: users.filter(u => u.role === 'manager').length,
       accountant: users.filter(u => u.role === 'accountant').length,
       viewer: users.filter(u => u.role === 'viewer').length,
+      operations: users.filter(u => u.role === 'operations').length,
     };
     return { total, active, inactive, locked, byRole };
   }, [users]);
