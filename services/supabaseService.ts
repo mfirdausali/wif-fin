@@ -339,15 +339,23 @@ export async function createDocument(
 
 /**
  * Get all documents for a company
+ * @param companyId - Company ID
+ * @param userRole - Optional user role to filter documents (operations users only see payment_voucher)
  */
-export async function getDocuments(companyId: string): Promise<Document[]> {
+export async function getDocuments(companyId: string, userRole?: string): Promise<Document[]> {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('documents')
       .select('*')
       .eq('company_id', companyId)
-      .is('deleted_at', null)
-      .order('created_at', { ascending: false });
+      .is('deleted_at', null);
+
+    // Filter by document type for operations users
+    if (userRole === 'operations') {
+      query = query.eq('document_type', 'payment_voucher');
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: false });
 
     if (error) throw error;
 

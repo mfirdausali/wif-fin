@@ -66,8 +66,9 @@ function AppContent() {
         setAllowNegativeBalance(company.allow_negative_balance || false);
 
         // Load documents and accounts in parallel
+        // Filter documents for operations users (payment_voucher only)
         const [loadedDocs, loadedAccounts] = await Promise.all([
-          SupabaseService.getDocuments(company.id),
+          SupabaseService.getDocuments(company.id, user?.role),
           SupabaseService.getAccounts(company.id)
         ]);
 
@@ -770,6 +771,7 @@ function AppContent() {
                   <DocumentTypeSelector
                     selectedType={selectedType}
                     onSelectType={setSelectedType}
+                    user={user}
                   />
                 </div>
               )}

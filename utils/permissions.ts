@@ -34,11 +34,33 @@ export function canCreateDocuments(user: PublicUser): boolean {
 }
 
 /**
+ * Check if user can create a specific document type
+ * Operations users can only create payment_voucher
+ */
+export function canCreateDocumentType(user: PublicUser, documentType: string): boolean {
+  if (!hasPermission(user, 'documents:create')) {
+    return false;
+  }
+
+  // Operations users can only create payment vouchers
+  if (user.role === 'operations') {
+    return documentType === 'payment_voucher';
+  }
+
+  return true;
+}
+
+/**
  * Check if user can edit a specific document
  */
 export function canEditDocument(user: PublicUser, document: Document): boolean {
   // Must have edit permission
   if (!hasPermission(user, 'documents:edit')) {
+    return false;
+  }
+
+  // Operations users can only edit payment vouchers
+  if (user.role === 'operations' && document.documentType !== 'payment_voucher') {
     return false;
   }
 
@@ -63,6 +85,11 @@ export function canEditDocument(user: PublicUser, document: Document): boolean {
 export function canDeleteDocument(user: PublicUser, document: Document): boolean {
   // Must have delete permission
   if (!hasPermission(user, 'documents:delete')) {
+    return false;
+  }
+
+  // Operations users cannot delete any documents (no delete permission)
+  if (user.role === 'operations') {
     return false;
   }
 

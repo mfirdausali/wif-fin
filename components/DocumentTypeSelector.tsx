@@ -1,14 +1,17 @@
 import { Card, CardContent } from './ui/card';
 import { FileText, Receipt, FileCheck, CheckCircle2 } from 'lucide-react';
 import { DocumentType } from '../types/document';
+import { PublicUser } from '../types/auth';
+import { getAccessibleDocumentTypes } from '../utils/permissions';
 
 interface DocumentTypeSelectorProps {
   selectedType: DocumentType | null;
   onSelectType: (type: DocumentType) => void;
+  user?: PublicUser | null;
 }
 
-export function DocumentTypeSelector({ selectedType, onSelectType }: DocumentTypeSelectorProps) {
-  const documentTypes = [
+export function DocumentTypeSelector({ selectedType, onSelectType, user }: DocumentTypeSelectorProps) {
+  const allDocumentTypes = [
     {
       type: 'invoice' as DocumentType,
       icon: FileText,
@@ -46,6 +49,10 @@ export function DocumentTypeSelector({ selectedType, onSelectType }: DocumentTyp
       borderColor: 'border-purple-200',
     },
   ];
+
+  // Filter document types based on user role
+  const accessibleTypes = user ? getAccessibleDocumentTypes(user) : ['invoice', 'receipt', 'payment_voucher', 'statement_of_payment'];
+  const documentTypes = allDocumentTypes.filter(dt => accessibleTypes.includes(dt.type));
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

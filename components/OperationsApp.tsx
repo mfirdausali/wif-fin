@@ -46,7 +46,7 @@ export function OperationsApp() {
         setCompanyId(company.id);
 
         const [loadedDocs, loadedAccounts] = await Promise.all([
-          SupabaseService.getDocuments(company.id),
+          SupabaseService.getDocuments(company.id, 'operations'), // Filter to payment_voucher only
           SupabaseService.getAccounts(company.id)
         ]);
 
@@ -123,29 +123,29 @@ export function OperationsApp() {
       <Toaster />
 
       {/* Header */}
-      <div className="bg-emerald-600 text-white">
+      <div className="bg-white border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <h1 className="text-2xl font-semibold">WIF Operations Portal</h1>
-              <p className="text-emerald-100 text-sm mt-1">
+              <h1 className="text-2xl font-semibold text-gray-900">WIF Operations Portal</h1>
+              <p className="text-gray-600 text-sm mt-1">
                 Payment Vouchers & Bookings
               </p>
             </div>
             <div className="flex items-center gap-3">
               {/* User Info */}
-              <div className="flex items-center gap-2 px-3 py-2 bg-emerald-700 rounded-lg">
-                <User className="w-4 h-4" />
+              <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border">
+                <User className="w-4 h-4 text-gray-700" />
                 <div className="text-sm">
-                  <div className="font-medium">{user?.fullName}</div>
-                  <div className="text-xs text-emerald-200">Operations</div>
+                  <div className="font-medium text-gray-900">{user?.fullName}</div>
+                  <div className="text-xs text-gray-600">Operations</div>
                 </div>
               </div>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleLogout}
-                className="bg-white text-emerald-700 hover:bg-emerald-50 border-0"
+                className="text-red-600 hover:text-red-700 hover:bg-red-50"
               >
                 <LogOut className="w-4 h-4 mr-2" />
                 Logout
@@ -211,7 +211,7 @@ export function OperationsApp() {
                 <Card>
                   <CardContent className="pt-4">
                     <div className="text-sm text-gray-600">Pending</div>
-                    <div className="text-2xl font-semibold text-yellow-600">{voucherStats.pending}</div>
+                    <div className="text-2xl font-semibold text-blue-600">{voucherStats.pending}</div>
                   </CardContent>
                 </Card>
                 <Card>
@@ -226,7 +226,6 @@ export function OperationsApp() {
               <div>
                 <Button
                   onClick={() => setShowVoucherForm(true)}
-                  className="bg-emerald-600 hover:bg-emerald-700"
                 >
                   <Plus className="w-4 h-4 mr-2" />
                   Create Payment Voucher
