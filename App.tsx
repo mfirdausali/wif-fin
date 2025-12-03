@@ -17,7 +17,8 @@ import { Account } from './types/account';
 import { LoginCredentials } from './types/auth';
 import { TransactionService } from './services/transactionService';
 import { logAuthEvent, logDocumentEvent, logAccountEvent, logTransactionEvent } from './services/activityLogService';
-import { canCreateDocuments, canEditDocument, canDeleteDocument } from './utils/permissions';
+import { canCreateDocuments, canEditDocument, canDeleteDocument, isOperationsUser } from './utils/permissions';
+import { OperationsApp } from './components/OperationsApp';
 import { hasPermission } from './services/userService';
 import { Button } from './components/ui/button';
 import { Card, CardContent } from './components/ui/card';
@@ -997,5 +998,11 @@ function AppWithAuth() {
   }
 
   // Show main app if authenticated
+  // Route operations users to dedicated interface
+  const { user } = useAuth();
+  if (user && isOperationsUser(user)) {
+    return <OperationsApp />;
+  }
+
   return <AppContent />;
 }

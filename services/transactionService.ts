@@ -33,7 +33,8 @@ export class TransactionService {
    */
   static validateTransaction(
     document: Document,
-    account: Account | undefined
+    account: Account | undefined,
+    allowNegativeBalance: boolean = false
   ): ValidationResult {
     // Check if account exists
     if (!account) {
@@ -51,8 +52,8 @@ export class TransactionService {
       };
     }
 
-    // Check sufficient balance for payments
-    if (document.documentType === 'statement_of_payment') {
+    // Check sufficient balance for payments (only if negative balances are not allowed)
+    if (document.documentType === 'statement_of_payment' && !allowNegativeBalance) {
       const sop = document as any;
       const amountToDeduct = sop.totalDeducted || document.amount;
       if (account.currentBalance < amountToDeduct) {

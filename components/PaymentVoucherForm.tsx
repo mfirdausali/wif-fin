@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -6,13 +6,14 @@ import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Textarea } from './ui/textarea';
 import { AlertCircle, Plus, Trash2 } from 'lucide-react';
-import { PaymentVoucher, Currency, LineItem } from '../types/document';
+import { PaymentVoucher, Currency, Country, LineItem } from '../types/document';
 import { Account } from '../types/account';
 import { Alert, AlertDescription } from './ui/alert';
 import { Separator } from './ui/separator';
-import { DocumentNumberService } from '../services/documentNumberService';
 import { useAuth } from '../contexts/AuthContext';
 import { canApproveVouchers } from '../utils/permissions';
+import { DatePicker, getTodayISO } from './ui/date-picker';
+import { logDocumentEvent } from '../services/activityLogService';
 
 interface PaymentVoucherFormProps {
   accounts: Account[];
@@ -32,8 +33,8 @@ export function PaymentVoucherForm({ accounts, onSubmit, onCancel, initialData }
   );
 
   const [formData, setFormData] = useState({
-    documentNumber: initialData?.documentNumber || '',
-    voucherDate: initialData?.voucherDate || new Date().toISOString().split('T')[0],
+    documentNumber: initialData?.documentNumber || 'Auto',
+    voucherDate: initialData?.voucherDate || getTodayISO(),
     payeeName: initialData?.payeeName || '',
     payeeAddress: initialData?.payeeAddress || '',
     payeeBankAccount: initialData?.payeeBankAccount || '',
@@ -43,20 +44,14 @@ export function PaymentVoucherForm({ accounts, onSubmit, onCancel, initialData }
     approvalDate: initialData?.approvalDate || '',
     paymentDueDate: initialData?.paymentDueDate || '',
     currency: initialData?.currency || ('MYR' as Currency),
-    country: initialData?.country || ('Malaysia' as 'Malaysia' | 'Japan'),
+    country: initialData?.country || ('Malaysia' as Country),
     accountId: initialData?.accountId || '',
     taxRate: initialData?.taxRate?.toString() || '',
     notes: initialData?.notes || '',
   });
 
-  // Generate document number from Supabase on mount
-  useEffect(() => {
-    if (!initialData) {
-      DocumentNumberService.generateDocumentNumberAsync('payment_voucher')
-        .then(docNum => setFormData(prev => ({ ...prev, documentNumber: docNum })))
-        .catch(() => setFormData(prev => ({ ...prev, documentNumber: DocumentNumberService.generateDocumentNumber('payment_voucher') })));
-    }
-  }, [initialData]);
+  // REMOVED: Document number generation moved to service layer at submission time
+  // This prevents race conditions where multiple users get the same number
 
   const addItem = () => {
     setItems([...items, {
@@ -174,6 +169,15 @@ export function PaymentVoucherForm({ accounts, onSubmit, onCancel, initialData }
       lastModifiedAt: now,
     };
 
+    // Log approval if this is a new approval (not editing an already-approved voucher)
+    const isNewApproval = formData.approvedBy && canApprove && !initialData?.approvedBy;
+    if (isNewApproval && user) {
+      logDocumentEvent('document:approved', user, voucher, {
+        approvedBy: user.fullName,
+        approvalDate: now,
+      });
+    }
+
     onSubmit(voucher);
   };
 
@@ -198,27 +202,27 @@ export function PaymentVoucherForm({ accounts, onSubmit, onCancel, initialData }
               <Input
                 id="documentNumber"
                 value={formData.documentNumber}
+                disabled={!initialData}
+                placeholder="Auto-generated on save"
+                className={!initialData ? 'bg-gray-100 text-gray-600' : ''}
                 onChange={(e) => setFormData({ ...formData, documentNumber: e.target.value })}
               />
+              {!initialData && (
+                <p className="text-xs text-gray-500">Document number will be generated automatically when you save</p>
+              )}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="voucherDate">Voucher Date *</Label>
-              <Input
-                id="voucherDate"
-                type="date"
-                value={formData.voucherDate}
-                onChange={(e) => setFormData({ ...formData, voucherDate: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="paymentDueDate">Payment Due Date</Label>
-              <Input
-                id="paymentDueDate"
-                type="date"
-                value={formData.paymentDueDate}
-                onChange={(e) => setFormData({ ...formData, paymentDueDate: e.target.value })}
-              />
-            </div>
+            <DatePicker
+              label="Voucher Date"
+              value={formData.voucherDate}
+              onChange={(value) => setFormData({ ...formData, voucherDate: value || getTodayISO() })}
+              required
+            />
+            <DatePicker
+              label="Payment Due Date"
+              value={formData.paymentDueDate}
+              onChange={(value) => setFormData({ ...formData, paymentDueDate: value || '' })}
+              minValue={formData.voucherDate}
+            />
           </div>
 
           {/* Payee Details */}
@@ -328,7 +332,7 @@ export function PaymentVoucherForm({ accounts, onSubmit, onCancel, initialData }
                 onValueChange={(value) => {
                   const currency = value as Currency;
                   const country = currency === 'JPY' ? 'Japan' : 'Malaysia';
-                  setFormData({ ...formData, currency, country: country as 'Malaysia' | 'Japan', accountId: '' });
+                  setFormData({ ...formData, currency, country: country as Country, accountId: '' });
                 }}
               >
                 <SelectTrigger id="currency">

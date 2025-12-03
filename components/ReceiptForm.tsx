@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -6,11 +6,11 @@ import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Textarea } from './ui/textarea';
 import { AlertCircle } from 'lucide-react';
-import { Receipt, Currency, Invoice } from '../types/document';
+import { Receipt, Currency, Country, Invoice } from '../types/document';
 import { Account } from '../types/account';
 import { Alert, AlertDescription } from './ui/alert';
-import { DocumentNumberService } from '../services/documentNumberService';
 import { useAuth } from '../contexts/AuthContext';
+import { DatePicker, getTodayISO } from './ui/date-picker';
 
 interface ReceiptFormProps {
   invoices: Invoice[];
@@ -26,28 +26,22 @@ export function ReceiptForm({ invoices, accounts, onSubmit, onCancel, initialDat
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
 
   const [formData, setFormData] = useState({
-    documentNumber: initialData?.documentNumber || '',
+    documentNumber: initialData?.documentNumber || 'Auto',
     payerName: initialData?.payerName || '',
     payerContact: initialData?.payerContact || '',
-    receiptDate: initialData?.receiptDate || new Date().toISOString().split('T')[0],
+    receiptDate: initialData?.receiptDate || getTodayISO(),
     paymentMethod: initialData?.paymentMethod || '',
     linkedInvoiceId: initialData?.linkedInvoiceId || '',
     receivedBy: initialData?.receivedBy || '',
     amount: initialData?.amount?.toString() || '',
     currency: initialData?.currency || ('MYR' as Currency),
-    country: initialData?.country || ('Malaysia' as 'Malaysia' | 'Japan'),
+    country: initialData?.country || ('Malaysia' as Country),
     accountId: initialData?.accountId || '',
     notes: initialData?.notes || '',
   });
 
-  // Generate document number from Supabase on mount
-  useEffect(() => {
-    if (!initialData) {
-      DocumentNumberService.generateDocumentNumberAsync('receipt')
-        .then(docNum => setFormData(prev => ({ ...prev, documentNumber: docNum })))
-        .catch(() => setFormData(prev => ({ ...prev, documentNumber: DocumentNumberService.generateDocumentNumber('receipt') })));
-    }
-  }, [initialData]);
+  // REMOVED: Document number generation moved to service layer at submission time
+  // This prevents race conditions where multiple users get the same number
 
   const handleInvoiceSelect = (invoiceId: string) => {
     const invoice = invoices.find(inv => inv.id === invoiceId);
@@ -153,18 +147,21 @@ export function ReceiptForm({ invoices, accounts, onSubmit, onCancel, initialDat
               <Input
                 id="documentNumber"
                 value={formData.documentNumber}
+                disabled={!initialData}
+                placeholder="Auto-generated on save"
+                className={!initialData ? 'bg-gray-100 text-gray-600' : ''}
                 onChange={(e) => setFormData({ ...formData, documentNumber: e.target.value })}
               />
+              {!initialData && (
+                <p className="text-xs text-gray-500">Document number will be generated automatically when you save</p>
+              )}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="receiptDate">Receipt Date *</Label>
-              <Input
-                id="receiptDate"
-                type="date"
-                value={formData.receiptDate}
-                onChange={(e) => setFormData({ ...formData, receiptDate: e.target.value })}
-              />
-            </div>
+            <DatePicker
+              label="Receipt Date"
+              value={formData.receiptDate}
+              onChange={(value) => setFormData({ ...formData, receiptDate: value || getTodayISO() })}
+              required
+            />
           </div>
 
           {/* Link to Invoice */}
@@ -264,7 +261,7 @@ export function ReceiptForm({ invoices, accounts, onSubmit, onCancel, initialDat
                 onValueChange={(value) => {
                   const currency = value as Currency;
                   const country = currency === 'JPY' ? 'Japan' : 'Malaysia';
-                  setFormData({ ...formData, currency, country: country as 'Malaysia' | 'Japan', accountId: '' });
+                  setFormData({ ...formData, currency, country: country as Country, accountId: '' });
                 }}
               >
                 <SelectTrigger id="currency">

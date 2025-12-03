@@ -68,6 +68,7 @@ interface AuthContextType {
   activateExistingUser: (userId: string) => Promise<void>;
   deactivateExistingUser: (userId: string) => Promise<void>;
   changePassword: (request: ChangePasswordRequest) => Promise<void>;
+  changeUserPassword: (userId: string, newPassword: string) => Promise<void>;
   updateProfile: (email: string, fullName: string) => Promise<void>;
 
   // Helper
@@ -188,12 +189,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const result = await authLogin(credentials, allUsers);
 
     if (!result.success) {
-      // Log failed attempt
+      // Find the user (if exists) to get more context
       const attemptUser = allUsers.find(
         (u) =>
           u.username.toLowerCase() === credentials.usernameOrEmail.toLowerCase() ||
           u.email.toLowerCase() === credentials.usernameOrEmail.toLowerCase()
       );
+
+      // Determine failure reason for logging
+      let failureReason: 'wrong_password' | 'user_not_found' | 'account_locked' | 'account_inactive' = 'user_not_found';
+      if (attemptUser) {
+        if (result.errorCode === 'ACCOUNT_LOCKED') {
+          failureReason = 'account_locked';
+        } else if (result.errorCode === 'ACCOUNT_INACTIVE') {
+          failureReason = 'account_inactive';
+        } else {
+          failureReason = 'wrong_password';
+        }
+      }
+
+      // Log failed login attempt
+      const logUser = attemptUser
+        ? {
+            id: attemptUser.id,
+            username: attemptUser.username,
+            email: attemptUser.email,
+            fullName: attemptUser.fullName,
+            role: attemptUser.role,
+            isActive: attemptUser.isActive,
+            createdBy: attemptUser.createdBy,
+            createdAt: attemptUser.createdAt,
+            updatedAt: attemptUser.updatedAt,
+          }
+        : { username: credentials.usernameOrEmail };
+
+      logAuthEvent('auth:login_failed', logUser, {
+        reason: failureReason,
+        attemptedUsername: credentials.usernameOrEmail,
+        failedAttemptCount: attemptUser ? attemptUser.failedLoginAttempts + 1 : 1,
+        userAgent: navigator.userAgent,
+      });
 
       if (attemptUser) {
         const updated = handleFailedLogin(attemptUser);
@@ -357,7 +392,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     toast.success('User deactivated successfully');
   };
 
-  // Change password
+  // Change password (self-service)
   const changePassword = async (request: ChangePasswordRequest) => {
     if (!user) throw new Error('Not authenticated');
 
@@ -379,6 +414,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     logAuthEvent('auth:password_changed', user);
     toast.success('Password changed successfully');
+  };
+
+  // Change another user's password (admin only)
+  const changeUserPassword = async (userId: string, newPassword: string) => {
+    if (!user) throw new Error('Not authenticated');
+
+    const targetUser = users.find((u) => u.id === userId);
+    if (!targetUser) throw new Error('User not found');
+
+    const updateResult = await updateUserPassword(userId, newPassword);
+
+    if (!updateResult.success) {
+      throw new Error(updateResult.error);
+    }
+
+    logUserEvent('user:updated', user, targetUser, { changes: { password: 'changed' } });
+    toast.success(`Password changed for ${targetUser.fullName}`);
   };
 
   // Update profile
@@ -418,6 +470,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     activateExistingUser,
     deactivateExistingUser,
     changePassword,
+    changeUserPassword,
     updateProfile,
     createUserReference,
     getUserActivityLog,

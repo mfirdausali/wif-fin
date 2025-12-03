@@ -11,6 +11,7 @@
 import { supabase } from '../lib/supabase';
 import type { Database } from '../types/database';
 import CryptoJS from 'crypto-js';
+import { logAuthEvent } from './activityLogService';
 
 type SessionRow = Database['public']['Tables']['sessions']['Row'];
 type SessionInsert = Database['public']['Tables']['sessions']['Insert'];
@@ -86,6 +87,10 @@ export async function createSession(
     userAgent?: string;
     ipAddress?: string;
     deviceName?: string;
+  },
+  userInfo?: {
+    username: string;
+    fullName?: string;
   }
 ): Promise<SessionToken> {
   try {
@@ -115,6 +120,25 @@ export async function createSession(
 
     if (error) throw error;
     if (!data) throw new Error('Failed to create session - no data returned');
+
+    // Log session created event
+    if (userInfo) {
+      logAuthEvent('auth:session_created', {
+        id: userId,
+        username: userInfo.username,
+        email: '',
+        fullName: userInfo.fullName || userInfo.username,
+        role: 'viewer',
+        isActive: true,
+        createdBy: 'system',
+        createdAt: '',
+        updatedAt: '',
+      }, {
+        sessionId: (data as SessionRow).id,
+        deviceInfo: deviceInfo || {},
+        expiresAt,
+      });
+    }
 
     return {
       sessionId: (data as SessionRow).id,
@@ -220,14 +244,56 @@ export async function refreshSession(
 /**
  * Revoke a specific session by token
  */
-export async function revokeSession(token: string): Promise<boolean> {
+export async function revokeSession(
+  token: string,
+  userInfo?: {
+    id: string;
+    username: string;
+    fullName?: string;
+  },
+  reason?: string
+): Promise<boolean> {
   try {
     const tokenHash = hashToken(token);
+
+    // Get session info before deleting (for logging)
+    let sessionUserId: string | null = null;
+    if (!userInfo) {
+      const { data: sessionData } = await supabase
+        .from('sessions')
+        .select('user_id')
+        .eq('token_hash', tokenHash)
+        .single();
+      if (sessionData) {
+        sessionUserId = (sessionData as Pick<SessionRow, 'user_id'>).user_id;
+      }
+    }
 
     const { error } = await supabase
       .from('sessions')
       .delete()
       .eq('token_hash', tokenHash);
+
+    if (!error) {
+      // Log session revoked event
+      const logUser = userInfo || (sessionUserId ? { id: sessionUserId, username: 'unknown' } : null);
+      if (logUser) {
+        logAuthEvent('auth:session_revoked', {
+          id: logUser.id,
+          username: logUser.username,
+          email: '',
+          fullName: logUser.fullName || logUser.username,
+          role: 'viewer',
+          isActive: true,
+          createdBy: 'system',
+          createdAt: '',
+          updatedAt: '',
+        }, {
+          reason: reason || 'logout',
+          revokedAt: new Date().toISOString(),
+        });
+      }
+    }
 
     return !error;
   } catch (error) {
@@ -257,12 +323,44 @@ async function revokeSessionById(sessionId: string): Promise<boolean> {
  * Revoke all sessions for a user
  * Use on password change, security events
  */
-export async function revokeAllUserSessions(userId: string): Promise<boolean> {
+export async function revokeAllUserSessions(
+  userId: string,
+  userInfo?: {
+    username: string;
+    fullName?: string;
+  },
+  reason?: string
+): Promise<boolean> {
   try {
+    // Get count of sessions before deleting (for logging)
+    const { count } = await supabase
+      .from('sessions')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId);
+
     const { error } = await supabase
       .from('sessions')
       .delete()
       .eq('user_id', userId);
+
+    if (!error && userInfo) {
+      // Log session revoked event for all sessions
+      logAuthEvent('auth:session_revoked', {
+        id: userId,
+        username: userInfo.username,
+        email: '',
+        fullName: userInfo.fullName || userInfo.username,
+        role: 'viewer',
+        isActive: true,
+        createdBy: 'system',
+        createdAt: '',
+        updatedAt: '',
+      }, {
+        reason: reason || 'all_sessions_revoked',
+        sessionsRevoked: count || 0,
+        revokedAt: new Date().toISOString(),
+      });
+    }
 
     return !error;
   } catch (error) {

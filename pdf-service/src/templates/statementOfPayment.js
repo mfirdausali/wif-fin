@@ -8,7 +8,7 @@ function generateStatementOfPaymentHTML(sop, companyInfo = {}) {
   console.log('Items:', sop.items);
   console.log('Transfer Proof Base64 exists:', !!sop.transferProofBase64);
   console.log('Transfer Proof Base64 length:', sop.transferProofBase64 ? sop.transferProofBase64.length : 0);
-  console.log('Transfer Proof Attachment:', sop.transferProofAttachment);
+  console.log('Transfer Proof Filename:', sop.transferProofFilename);
 
   const company = {
     name: companyInfo.name || 'WIF JAPAN SDN BHD',
@@ -51,7 +51,7 @@ function generateStatementOfPaymentHTML(sop, companyInfo = {}) {
             color: #000000;
             margin: 0;
             padding: 0 0 100pt 0; /* Bottom padding to prevent overlap with footer */
-            font-size: 11pt;
+            font-size: 10pt;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
             position: relative;
@@ -93,6 +93,7 @@ function generateStatementOfPaymentHTML(sop, companyInfo = {}) {
         .statement-details {
             border: 1pt solid #000000;
             margin: 24pt 0;
+            page-break-inside: avoid;
         }
         .detail-row {
             display: table;
@@ -122,6 +123,7 @@ function generateStatementOfPaymentHTML(sop, companyInfo = {}) {
             padding: 18pt;
             text-align: center;
             margin: 24pt 0;
+            page-break-inside: avoid;
         }
         .amount-label {
             font-size: 12pt;
@@ -137,6 +139,7 @@ function generateStatementOfPaymentHTML(sop, companyInfo = {}) {
             padding: 18pt;
             margin: 24pt 0;
             text-align: center;
+            page-break-inside: avoid;
         }
         .confirmation-title {
             font-size: 14pt;
@@ -175,6 +178,7 @@ function generateStatementOfPaymentHTML(sop, companyInfo = {}) {
         .totals-table {
             margin: 18pt 0 24pt auto;
             width: 300pt;
+            page-break-inside: avoid;
         }
         .totals-table td {
             padding: 6pt 12pt;
@@ -338,7 +342,7 @@ function generateStatementOfPaymentHTML(sop, companyInfo = {}) {
         <div style="background: #e8e8e8; padding: 8pt 12pt; font-size: 11pt; border-bottom: 0.5pt solid #000000;">Transfer Proof</div>
         <div class="transfer-proof-container" style="padding: 12pt; text-align: center;">
             <img src="${sop.transferProofBase64}" class="transfer-proof-image" alt="Transfer Proof" />
-            ${sop.transferProofAttachment ? `<div style="margin-top: 6pt; font-size: 9pt; color: #6b7280;">File: ${sop.transferProofAttachment}</div>` : ''}
+            ${sop.transferProofFilename ? `<div style="margin-top: 6pt; font-size: 9pt; color: #6b7280;">File: ${sop.transferProofFilename}</div>` : ''}
         </div>
     </div>
     ` : ''}

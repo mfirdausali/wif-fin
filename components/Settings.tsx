@@ -6,6 +6,7 @@ import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Alert, AlertTitle, AlertDescription } from './ui/alert';
+import { Switch } from './ui/switch';
 import { ArrowLeft, Save, Info, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
@@ -13,7 +14,7 @@ import { UserManagement } from './auth/UserManagement';
 import { ActivityLog } from './auth/ActivityLog';
 import { isAdmin } from '../utils/permissions';
 // import { getUserStats } from '../services/userService';
-import { getActivityLogsAsync, downloadActivityLogs } from '../services/activityLogService';
+import { getActivityLogsAsync, downloadActivityLogs, logSystemEvent } from '../services/activityLogService';
 import { ActivityLog as ActivityLogType } from '../types/auth';
 import * as SupabaseService from '../services/supabaseService';
 
@@ -27,6 +28,7 @@ export interface CompanyInfo {
   email: string;
   registrationNo: string;
   registeredOffice: string;
+  allowNegativeBalance: boolean;
 }
 
 const DEFAULT_COMPANY_INFO: CompanyInfo = {
@@ -35,7 +37,8 @@ const DEFAULT_COMPANY_INFO: CompanyInfo = {
   tel: '+60-XXX-XXXXXXX',
   email: 'info@wifjapan.com',
   registrationNo: '(1594364-K)',
-  registeredOffice: 'NO.6, LORONG KIRI 10, KAMPUNG DATUK KERAMAT, KUALA LUMPUR, 54000, Malaysia'
+  registeredOffice: 'NO.6, LORONG KIRI 10, KAMPUNG DATUK KERAMAT, KUALA LUMPUR, 54000, Malaysia',
+  allowNegativeBalance: false
 };
 
 interface SettingsProps {
@@ -50,7 +53,8 @@ export function Settings({ onBack }: SettingsProps) {
     updateExistingUser,
     deleteExistingUser,
     activateExistingUser,
-    deactivateExistingUser
+    deactivateExistingUser,
+    changeUserPassword,
   } = useAuth();
   const userIsAdmin = user && isAdmin(user);
   const [formData, setFormData] = useState<CompanyInfo>(DEFAULT_COMPANY_INFO);
@@ -58,6 +62,7 @@ export function Settings({ onBack }: SettingsProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [activityLogs, setActivityLogs] = useState<ActivityLogType[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [originalFormData, setOriginalFormData] = useState<CompanyInfo>(DEFAULT_COMPANY_INFO);
 
   // Calculate user stats from users array
   const userStats = useMemo(() => {
@@ -79,14 +84,17 @@ export function Settings({ onBack }: SettingsProps) {
     async function loadCompanyInfo() {
       try {
         const company = await SupabaseService.getOrCreateDefaultCompany();
-        setFormData({
+        const loadedInfo: CompanyInfo = {
           name: company.name || DEFAULT_COMPANY_INFO.name,
           address: company.address || DEFAULT_COMPANY_INFO.address,
           tel: company.tel || DEFAULT_COMPANY_INFO.tel,
           email: company.email || DEFAULT_COMPANY_INFO.email,
           registrationNo: company.registration_no || DEFAULT_COMPANY_INFO.registrationNo,
           registeredOffice: company.registered_office || DEFAULT_COMPANY_INFO.registeredOffice,
-        });
+          allowNegativeBalance: company.allow_negative_balance || DEFAULT_COMPANY_INFO.allowNegativeBalance,
+        };
+        setFormData(loadedInfo);
+        setOriginalFormData(loadedInfo);
         // Also sync to localStorage for offline access
         localStorage.setItem(COMPANY_INFO_STORAGE_KEY, JSON.stringify({
           name: company.name,
@@ -95,6 +103,7 @@ export function Settings({ onBack }: SettingsProps) {
           email: company.email,
           registrationNo: company.registration_no,
           registeredOffice: company.registered_office,
+          allowNegativeBalance: company.allow_negative_balance,
         }));
       } catch (error) {
         console.error('Failed to load company info from Supabase:', error);
@@ -103,7 +112,9 @@ export function Settings({ onBack }: SettingsProps) {
         if (stored) {
           try {
             const loadedData = JSON.parse(stored);
-            setFormData({ ...DEFAULT_COMPANY_INFO, ...loadedData });
+            const loadedInfo = { ...DEFAULT_COMPANY_INFO, ...loadedData };
+            setFormData(loadedInfo);
+            setOriginalFormData(loadedInfo);
           } catch (e) {
             console.error('Failed to parse localStorage:', e);
           }
@@ -139,6 +150,50 @@ export function Settings({ onBack }: SettingsProps) {
       await SupabaseService.updateCompanyInfo(DEFAULT_COMPANY_ID, formData);
       // Also save to localStorage for offline access
       localStorage.setItem(COMPANY_INFO_STORAGE_KEY, JSON.stringify(formData));
+
+      // Log settings change if user is logged in
+      if (user) {
+        // Calculate what changed
+        const changes: Record<string, { from: string | boolean; to: string | boolean }> = {};
+        const fieldLabels: Record<keyof CompanyInfo, string> = {
+          name: 'Company Name',
+          address: 'Address',
+          tel: 'Telephone',
+          email: 'Email',
+          registrationNo: 'Registration No',
+          registeredOffice: 'Registered Office',
+          allowNegativeBalance: 'Allow Negative Balance',
+        };
+
+        (Object.keys(formData) as Array<keyof CompanyInfo>).forEach((key) => {
+          if (formData[key] !== originalFormData[key]) {
+            changes[fieldLabels[key]] = {
+              from: originalFormData[key],
+              to: formData[key],
+            };
+          }
+        });
+
+        const changedFieldNames = Object.keys(changes);
+        const description = changedFieldNames.length > 0
+          ? `${user.fullName} updated company settings: ${changedFieldNames.join(', ')}`
+          : `${user.fullName} saved company settings (no changes)`;
+
+        logSystemEvent(
+          'system:settings_changed',
+          user,
+          description,
+          {
+            settingsType: 'company',
+            changes,
+            newValues: formData,
+          }
+        );
+
+        // Update original form data to reflect saved state
+        setOriginalFormData({ ...formData });
+      }
+
       toast.success('Company information saved', {
         description: 'Settings will be applied to all new PDFs',
       });
@@ -157,6 +212,25 @@ export function Settings({ onBack }: SettingsProps) {
     localStorage.removeItem(COMPANY_INFO_STORAGE_KEY);
 
     toast.info('Reset to default company information');
+  };
+
+  // Handle activity log export with logging
+  const handleExportActivityLogs = async (format: 'json' | 'csv') => {
+    if (user) {
+      // Log the export event
+      logSystemEvent(
+        'system:data_exported',
+        user,
+        `${user.fullName} exported activity logs as ${format.toUpperCase()}`,
+        {
+          exportFormat: format,
+          recordCount: activityLogs.length,
+          exportedAt: new Date().toISOString(),
+        }
+      );
+    }
+    // Perform the actual export
+    await downloadActivityLogs(format);
   };
 
   return (
@@ -270,6 +344,31 @@ export function Settings({ onBack }: SettingsProps) {
           </div>
 
           <div className="pt-4 border-t">
+            <h3 className="text-sm font-semibold mb-4">Account Settings</h3>
+
+            <div className="flex items-start justify-between space-x-4">
+              <div className="flex-1">
+                <Label htmlFor="allowNegativeBalance" className="text-base font-medium">
+                  Allow Negative Balances (Overdraft)
+                </Label>
+                <p className="text-sm text-gray-500 mt-1">
+                  When enabled, accounts can have negative balances. Payments will be allowed even if they exceed the current account balance.
+                </p>
+                <p className="text-xs text-amber-600 mt-2">
+                  <Info className="w-3 h-3 inline mr-1" />
+                  Warning: Enabling this removes balance validation for Statement of Payment documents.
+                </p>
+              </div>
+              <Switch
+                id="allowNegativeBalance"
+                checked={formData.allowNegativeBalance}
+                onCheckedChange={(checked) => setFormData({ ...formData, allowNegativeBalance: checked })}
+                disabled={!userIsAdmin}
+              />
+            </div>
+          </div>
+
+          <div className="pt-4 border-t">
             <h3 className="text-sm font-semibold mb-3">Preview</h3>
             <div className="p-4 bg-gray-50 rounded border text-sm">
               <div className="font-bold mb-1">{formData.name || 'Company Name'}</div>
@@ -315,6 +414,7 @@ export function Settings({ onBack }: SettingsProps) {
               onDeleteUser={deleteExistingUser}
               onActivateUser={activateExistingUser}
               onDeactivateUser={deactivateExistingUser}
+              onChangeUserPassword={changeUserPassword}
             />
           </TabsContent>
         )}
@@ -324,7 +424,7 @@ export function Settings({ onBack }: SettingsProps) {
             <ActivityLog
               activities={activityLogs}
               users={users}
-              onExport={(format) => downloadActivityLogs(format)}
+              onExport={handleExportActivityLogs}
               isLoading={isLoadingLogs}
             />
           </TabsContent>
@@ -363,6 +463,7 @@ export async function getCompanyInfoAsync(): Promise<CompanyInfo> {
       email: company.email || DEFAULT_COMPANY_INFO.email,
       registrationNo: company.registration_no || DEFAULT_COMPANY_INFO.registrationNo,
       registeredOffice: company.registered_office || DEFAULT_COMPANY_INFO.registeredOffice,
+      allowNegativeBalance: company.allow_negative_balance || DEFAULT_COMPANY_INFO.allowNegativeBalance,
     };
     // Update localStorage cache
     localStorage.setItem(COMPANY_INFO_STORAGE_KEY, JSON.stringify(companyInfo));

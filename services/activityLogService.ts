@@ -257,15 +257,27 @@ export function logActivity(
  * Log authentication event
  */
 export function logAuthEvent(
-  type: 'auth:login' | 'auth:logout' | 'auth:login_failed' | 'auth:password_changed',
+  type:
+    | 'auth:login'
+    | 'auth:logout'
+    | 'auth:login_failed'
+    | 'auth:password_changed'
+    | 'auth:account_locked'
+    | 'auth:account_unlocked'
+    | 'auth:session_created'
+    | 'auth:session_revoked',
   user: PublicUser | { username: string },
   metadata?: Record<string, unknown>
 ): ActivityLog {
-  const descriptions = {
+  const descriptions: Record<string, string> = {
     'auth:login': `User ${user.username} logged in successfully`,
     'auth:logout': `User ${user.username} logged out`,
     'auth:login_failed': `Failed login attempt for ${user.username}`,
     'auth:password_changed': `User ${user.username} changed their password`,
+    'auth:account_locked': `Account ${user.username} was locked due to too many failed login attempts`,
+    'auth:account_unlocked': `Account ${user.username} was unlocked`,
+    'auth:session_created': `New session created for ${user.username}`,
+    'auth:session_revoked': `Session revoked for ${user.username}`,
   };
 
   const publicUser =
@@ -296,18 +308,22 @@ export function logDocumentEvent(
     | 'document:deleted'
     | 'document:status_changed'
     | 'document:approved'
-    | 'document:printed',
+    | 'document:printed'
+    | 'document:linked_to_booking'
+    | 'document:unlinked_from_booking',
   user: PublicUser,
   document: Document,
   metadata?: Record<string, unknown>
 ): ActivityLog {
-  const actions = {
+  const actions: Record<string, string> = {
     'document:created': 'created',
     'document:updated': 'updated',
     'document:deleted': 'deleted',
     'document:status_changed': 'changed status of',
     'document:approved': 'approved',
     'document:printed': 'printed',
+    'document:linked_to_booking': 'linked to booking',
+    'document:unlinked_from_booking': 'unlinked from booking',
   };
 
   const description = `${user.fullName} ${actions[type]} ${document.documentType} ${document.documentNumber}`;
@@ -403,6 +419,109 @@ export function logSystemEvent(
   return logActivity(type, user, description, {
     resourceType: 'system',
     metadata,
+  });
+}
+
+/**
+ * Log booking event
+ * Tracks all booking-related activities including CRUD operations,
+ * status changes, and card printing
+ */
+export function logBookingEvent(
+  type:
+    | 'booking:created'
+    | 'booking:updated'
+    | 'booking:deleted'
+    | 'booking:status_changed'
+    | 'booking:card_printed'
+    | 'booking:form_printed',
+  user: { id: string; username: string; fullName: string },
+  booking: { id: string; bookingCode: string; guestName: string; status?: string },
+  metadata?: Record<string, unknown>
+): ActivityLog {
+  const actions = {
+    'booking:created': 'created',
+    'booking:updated': 'updated',
+    'booking:deleted': 'deleted',
+    'booking:status_changed': 'changed status of',
+    'booking:card_printed': 'printed cards for',
+    'booking:form_printed': 'printed form for',
+  };
+
+  const description = `${user.fullName} ${actions[type]} booking ${booking.bookingCode} (${booking.guestName})`;
+
+  // Create a PublicUser-compatible object for logActivity
+  const publicUser: PublicUser = {
+    id: user.id,
+    username: user.username,
+    fullName: user.fullName,
+    email: '',
+    role: 'viewer',
+    isActive: true,
+    createdBy: 'system',
+    createdAt: '',
+    updatedAt: '',
+  };
+
+  return logActivity(type, publicUser, description, {
+    resourceId: booking.id,
+    resourceType: 'booking',
+    metadata: {
+      bookingCode: booking.bookingCode,
+      guestName: booking.guestName,
+      status: booking.status,
+      ...metadata,
+    },
+  });
+}
+
+/**
+ * Log transaction event
+ * Tracks financial transactions including balance changes from document operations.
+ * This is critical for audit trails of all financial movements.
+ *
+ * @param type - 'transaction:applied' when a document affects account balance,
+ *               'transaction:reversed' when a document effect is undone
+ * @param user - The user performing the action
+ * @param transactionData - Details about the transaction
+ */
+export function logTransactionEvent(
+  type: 'transaction:applied' | 'transaction:reversed',
+  user: PublicUser,
+  transactionData: {
+    accountId: string;
+    accountName: string;
+    previousBalance: number;
+    newBalance: number;
+    changeAmount: number;
+    documentId: string;
+    documentNumber: string;
+    documentType: string;
+    transactionType: 'increase' | 'decrease';
+    currency: string;
+  }
+): ActivityLog {
+  const action = type === 'transaction:applied' ? 'applied' : 'reversed';
+  const direction = transactionData.transactionType === 'increase' ? 'increased' : 'decreased';
+  const changeDisplay = Math.abs(transactionData.changeAmount).toFixed(2);
+
+  const description = `${user.fullName} ${action} transaction: ${transactionData.accountName} ${direction} by ${transactionData.currency} ${changeDisplay} (${transactionData.documentType} ${transactionData.documentNumber})`;
+
+  return logActivity(type, user, description, {
+    resourceId: transactionData.accountId,
+    resourceType: 'transaction',
+    metadata: {
+      accountId: transactionData.accountId,
+      accountName: transactionData.accountName,
+      previousBalance: transactionData.previousBalance,
+      newBalance: transactionData.newBalance,
+      changeAmount: transactionData.changeAmount,
+      documentId: transactionData.documentId,
+      documentNumber: transactionData.documentNumber,
+      documentType: transactionData.documentType,
+      transactionType: transactionData.transactionType,
+      currency: transactionData.currency,
+    },
   });
 }
 

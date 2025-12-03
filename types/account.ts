@@ -1,4 +1,4 @@
-import { Currency } from './document';
+import { Currency, Country } from './document';
 
 export type AccountType = 'main_bank' | 'petty_cash';
 
@@ -7,7 +7,7 @@ export interface Account {
   name: string;
   type: AccountType;
   currency: Currency;
-  country: 'Malaysia' | 'Japan';
+  country: Country;
   // For main bank accounts
   bankName?: string;
   accountNumber?: string;

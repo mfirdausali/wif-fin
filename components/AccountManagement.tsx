@@ -8,7 +8,7 @@ import { Textarea } from './ui/textarea';
 import { Badge } from './ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { Account, AccountType } from '../types/account';
-import { Currency } from '../types/document';
+import { Currency, Country } from '../types/document';
 import { Building2, Wallet, Plus, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert';
 
@@ -26,7 +26,7 @@ export function AccountManagement({ accounts, onAddAccount, onAccountClick }: Ac
     name: '',
     type: 'main_bank' as AccountType,
     currency: 'MYR' as Currency,
-    country: 'Malaysia' as 'Malaysia' | 'Japan',
+    country: 'Malaysia' as Country,
     bankName: '',
     accountNumber: '',
     custodian: '',
@@ -153,9 +153,9 @@ export function AccountManagement({ accounts, onAddAccount, onAccountClick }: Ac
                   <Label htmlFor="country">Country *</Label>
                   <Select
                     value={formData.country}
-                    onValueChange={(value) => setFormData({ 
-                      ...formData, 
-                      country: value as 'Malaysia' | 'Japan',
+                    onValueChange={(value) => setFormData({
+                      ...formData,
+                      country: value as Country,
                       currency: value === 'Malaysia' ? 'MYR' : 'JPY'
                     })}
                   >

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -6,12 +6,12 @@ import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Textarea } from './ui/textarea';
 import { Plus, Trash2, AlertCircle } from 'lucide-react';
-import { Invoice, Currency, LineItem } from '../types/document';
+import { Invoice, Currency, Country, LineItem } from '../types/document';
 import { Account } from '../types/account';
 import { Alert, AlertDescription } from './ui/alert';
 import { Separator } from './ui/separator';
-import { DocumentNumberService } from '../services/documentNumberService';
 import { useAuth } from '../contexts/AuthContext';
+import { DatePicker, getTodayISO } from './ui/date-picker';
 
 interface InvoiceFormProps {
   accounts: Account[];
@@ -30,28 +30,22 @@ export function InvoiceForm({ accounts, onSubmit, onCancel, initialData }: Invoi
   );
 
   const [formData, setFormData] = useState({
-    documentNumber: initialData?.documentNumber || '',
+    documentNumber: initialData?.documentNumber || 'Auto',
     customerName: initialData?.customerName || '',
     customerAddress: initialData?.customerAddress || '',
     customerEmail: initialData?.customerEmail || '',
-    invoiceDate: initialData?.date || new Date().toISOString().split('T')[0],
+    invoiceDate: initialData?.date || getTodayISO(),
     dueDate: initialData?.dueDate || '',
     currency: initialData?.currency || ('MYR' as Currency),
-    country: initialData?.country || ('Malaysia' as 'Malaysia' | 'Japan'),
+    country: initialData?.country || ('Malaysia' as Country),
     accountId: initialData?.accountId || '',
     taxRate: initialData?.taxRate?.toString() || '',
     paymentTerms: initialData?.paymentTerms || '',
     notes: initialData?.notes || '',
   });
 
-  // Generate document number from Supabase on mount
-  useEffect(() => {
-    if (!initialData) {
-      DocumentNumberService.generateDocumentNumberAsync('invoice')
-        .then(docNum => setFormData(prev => ({ ...prev, documentNumber: docNum })))
-        .catch(() => setFormData(prev => ({ ...prev, documentNumber: DocumentNumberService.generateDocumentNumber('invoice') })));
-    }
-  }, [initialData]);
+  // REMOVED: Document number generation moved to service layer at submission time
+  // This prevents race conditions where multiple users get the same number
 
   const addItem = () => {
     setItems([...items, { 
@@ -174,27 +168,28 @@ export function InvoiceForm({ accounts, onSubmit, onCancel, initialData }: Invoi
               <Input
                 id="documentNumber"
                 value={formData.documentNumber}
+                disabled={!initialData}
+                placeholder="Auto-generated on save"
+                className={!initialData ? 'bg-gray-100 text-gray-600' : ''}
                 onChange={(e) => setFormData({ ...formData, documentNumber: e.target.value })}
               />
+              {!initialData && (
+                <p className="text-xs text-gray-500">Document number will be generated automatically when you save</p>
+              )}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="invoiceDate">Invoice Date *</Label>
-              <Input
-                id="invoiceDate"
-                type="date"
-                value={formData.invoiceDate}
-                onChange={(e) => setFormData({ ...formData, invoiceDate: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="dueDate">Due Date *</Label>
-              <Input
-                id="dueDate"
-                type="date"
-                value={formData.dueDate}
-                onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
-              />
-            </div>
+            <DatePicker
+              label="Invoice Date"
+              value={formData.invoiceDate}
+              onChange={(value) => setFormData({ ...formData, invoiceDate: value || getTodayISO() })}
+              required
+            />
+            <DatePicker
+              label="Due Date"
+              value={formData.dueDate}
+              onChange={(value) => setFormData({ ...formData, dueDate: value || '' })}
+              minValue={formData.invoiceDate}
+              required
+            />
           </div>
 
           <Separator />
@@ -301,7 +296,7 @@ export function InvoiceForm({ accounts, onSubmit, onCancel, initialData }: Invoi
                 onValueChange={(value) => {
                   const currency = value as Currency;
                   const country = currency === 'JPY' ? 'Japan' : 'Malaysia';
-                  setFormData({ ...formData, currency, country: country as 'Malaysia' | 'Japan', accountId: '' });
+                  setFormData({ ...formData, currency, country: country as Country, accountId: '' });
                 }}
               >
                 <SelectTrigger id="currency">

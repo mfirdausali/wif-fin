@@ -59,6 +59,7 @@ import {
   Eye,
   EyeOff,
   Clock,
+  Key,
 } from 'lucide-react';
 import { PublicUser, UserRole, CreateUserRequest, UpdateUserRequest } from '../../types/auth';
 import { getRoleBadgeColor, getRoleDisplayName, getRoleDescription } from '../../utils/permissions';
@@ -79,6 +80,7 @@ interface UserManagementProps {
   onDeleteUser: (userId: string) => void;
   onActivateUser: (userId: string) => void;
   onDeactivateUser: (userId: string) => void;
+  onChangeUserPassword: (userId: string, newPassword: string) => Promise<void>;
 }
 
 export function UserManagement({
@@ -90,6 +92,7 @@ export function UserManagement({
   onDeleteUser,
   onActivateUser,
   onDeactivateUser,
+  onChangeUserPassword,
 }: UserManagementProps) {
   // State
   const [searchQuery, setSearchQuery] = useState('');
@@ -98,6 +101,7 @@ export function UserManagement({
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingUser, setEditingUser] = useState<PublicUser | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [changingPasswordUser, setChangingPasswordUser] = useState<PublicUser | null>(null);
 
   // Create user form state
   const [createForm, setCreateForm] = useState({
@@ -116,6 +120,15 @@ export function UserManagement({
     role: 'viewer' as UserRole,
   });
   const [editError, setEditError] = useState<string | null>(null);
+
+  // Change password form state
+  const [passwordForm, setPasswordForm] = useState({
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   // Filter users
   const filteredUsers = users.filter((user) => {
@@ -207,6 +220,44 @@ export function UserManagement({
       role: editForm.role,
     });
     setEditingUser(null);
+  };
+
+  // Handle change password
+  const handleChangePassword = async () => {
+    if (!changingPasswordUser) return;
+    setPasswordError(null);
+
+    // Validate passwords match
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordError('Passwords do not match');
+      return;
+    }
+
+    // Validate password strength
+    const passwordValidation = validatePasswordStrength(passwordForm.newPassword);
+    if (!passwordValidation.isValid) {
+      setPasswordError(passwordValidation.errors.join('. '));
+      return;
+    }
+
+    setIsChangingPassword(true);
+    try {
+      await onChangeUserPassword(changingPasswordUser.id, passwordForm.newPassword);
+      setChangingPasswordUser(null);
+      setPasswordForm({ newPassword: '', confirmPassword: '' });
+    } catch (error: any) {
+      setPasswordError(error.message || 'Failed to change password');
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
+  // Open change password dialog
+  const openChangePasswordDialog = (user: PublicUser) => {
+    setChangingPasswordUser(user);
+    setPasswordForm({ newPassword: '', confirmPassword: '' });
+    setPasswordError(null);
+    setShowNewPassword(false);
   };
 
   // Open edit dialog
@@ -386,6 +437,7 @@ export function UserManagement({
                         <SelectItem value="accountant">Accountant</SelectItem>
                         <SelectItem value="manager">Manager</SelectItem>
                         <SelectItem value="admin">Administrator</SelectItem>
+                        <SelectItem value="operations">Operations</SelectItem>
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-gray-500">
@@ -428,6 +480,7 @@ export function UserManagement({
                   <SelectItem value="manager">Manager</SelectItem>
                   <SelectItem value="accountant">Accountant</SelectItem>
                   <SelectItem value="viewer">Viewer</SelectItem>
+                  <SelectItem value="operations">Operations</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -573,6 +626,7 @@ export function UserManagement({
                                     <SelectItem value="accountant">Accountant</SelectItem>
                                     <SelectItem value="manager">Manager</SelectItem>
                                     <SelectItem value="admin">Administrator</SelectItem>
+                                    <SelectItem value="operations">Operations</SelectItem>
                                   </SelectContent>
                                 </Select>
                               </div>
@@ -586,6 +640,99 @@ export function UserManagement({
                             </DialogFooter>
                           </DialogContent>
                         </Dialog>
+
+                        {/* Change Password Button */}
+                        {user.id !== currentUser.id && (
+                          <Dialog
+                            open={changingPasswordUser?.id === user.id}
+                            onOpenChange={(open) => !open && setChangingPasswordUser(null)}
+                          >
+                            <DialogTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openChangePasswordDialog(user)}
+                              >
+                                <Key className="w-3 h-3 mr-1" />
+                                Password
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent className="max-w-md">
+                              <DialogHeader>
+                                <DialogTitle>Change Password</DialogTitle>
+                                <DialogDescription>
+                                  Set a new password for {user.fullName}
+                                </DialogDescription>
+                              </DialogHeader>
+
+                              <div className="space-y-4">
+                                {passwordError && (
+                                  <Alert variant="destructive">
+                                    <AlertCircle className="h-4 w-4" />
+                                    <AlertDescription>{passwordError}</AlertDescription>
+                                  </Alert>
+                                )}
+
+                                <div className="space-y-2">
+                                  <Label htmlFor="new-password">New Password</Label>
+                                  <div className="relative">
+                                    <Input
+                                      id="new-password"
+                                      type={showNewPassword ? 'text' : 'password'}
+                                      value={passwordForm.newPassword}
+                                      onChange={(e) =>
+                                        setPasswordForm({ ...passwordForm, newPassword: e.target.value })
+                                      }
+                                      placeholder="Enter new password"
+                                      className="pr-10"
+                                    />
+                                    <button
+                                      type="button"
+                                      tabIndex={-1}
+                                      onClick={() => setShowNewPassword(!showNewPassword)}
+                                      className="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
+                                    >
+                                      {showNewPassword ? (
+                                        <EyeOff className="h-4 w-4" />
+                                      ) : (
+                                        <Eye className="h-4 w-4" />
+                                      )}
+                                    </button>
+                                  </div>
+                                  <p className="text-xs text-gray-500">
+                                    Min 8 chars, uppercase, lowercase, number, special char
+                                  </p>
+                                </div>
+
+                                <div className="space-y-2">
+                                  <Label htmlFor="confirm-password">Confirm Password</Label>
+                                  <Input
+                                    id="confirm-password"
+                                    type={showNewPassword ? 'text' : 'password'}
+                                    value={passwordForm.confirmPassword}
+                                    onChange={(e) =>
+                                      setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })
+                                    }
+                                    placeholder="Confirm new password"
+                                  />
+                                </div>
+                              </div>
+
+                              <DialogFooter>
+                                <Button
+                                  variant="outline"
+                                  onClick={() => setChangingPasswordUser(null)}
+                                  disabled={isChangingPassword}
+                                >
+                                  Cancel
+                                </Button>
+                                <Button onClick={handleChangePassword} disabled={isChangingPassword}>
+                                  {isChangingPassword ? 'Changing...' : 'Change Password'}
+                                </Button>
+                              </DialogFooter>
+                            </DialogContent>
+                          </Dialog>
+                        )}
 
                         {/* Activate/Deactivate Button */}
                         {user.id !== currentUser.id && (

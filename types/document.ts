@@ -1,5 +1,7 @@
 export type Currency = 'MYR' | 'JPY';
 
+export type Country = 'Malaysia' | 'Japan';
+
 export type DocumentType = 'invoice' | 'receipt' | 'payment_voucher' | 'statement_of_payment';
 
 export type DocumentStatus = 'draft' | 'issued' | 'paid' | 'completed' | 'cancelled';
@@ -30,7 +32,7 @@ export interface BaseDocument {
   status: DocumentStatus;
   currency: Currency;
   amount: number;
-  country: 'Malaysia' | 'Japan';
+  country: Country;
   accountId?: string; // Link to account
   accountName?: string; // For display
   notes?: string;
@@ -103,7 +105,7 @@ export interface StatementOfPayment extends BaseDocument {
   paymentDate: string;
   paymentMethod: string;
   transactionReference: string;
-  transferProofAttachment?: string; // File name
+  transferProofFilename?: string; // File name
   transferProofBase64?: string; // Base64 encoded image for PDF embedding
   confirmedBy: string;
   payeeName: string;

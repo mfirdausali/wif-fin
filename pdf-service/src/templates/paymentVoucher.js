@@ -32,7 +32,7 @@ function generatePaymentVoucherHTML(pv, companyInfo = {}) {
             color: #000000;
             margin: 0;
             padding: 0;
-            font-size: 11pt;
+            font-size: 10pt;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
         }
@@ -72,6 +72,7 @@ function generatePaymentVoucherHTML(pv, companyInfo = {}) {
         .voucher-details {
             border: 1pt solid #000000;
             margin: 24pt 0;
+            page-break-inside: avoid;
         }
         .detail-row {
             display: table;
@@ -101,6 +102,7 @@ function generatePaymentVoucherHTML(pv, companyInfo = {}) {
             padding: 18pt;
             text-align: center;
             margin: 24pt 0;
+            page-break-inside: avoid;
         }
         .amount-label {
             font-size: 12pt;
@@ -158,6 +160,7 @@ function generatePaymentVoucherHTML(pv, companyInfo = {}) {
         .totals-table {
             margin: 18pt 0 24pt auto;
             width: 300pt;
+            page-break-inside: avoid;
         }
         .totals-table td {
             padding: 6pt 12pt;

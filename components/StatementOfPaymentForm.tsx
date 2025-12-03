@@ -12,6 +12,7 @@ import { Account } from '../types/account';
 import { Alert, AlertDescription } from './ui/alert';
 import { DocumentNumberService } from '../services/documentNumberService';
 import { useAuth } from '../contexts/AuthContext';
+import { DatePicker, getTodayISO } from './ui/date-picker';
 
 interface StatementOfPaymentFormProps {
   paymentVouchers: PaymentVoucher[];
@@ -31,13 +32,13 @@ export function StatementOfPaymentForm({ paymentVouchers, accounts, onSubmit, on
     : null;
 
   const [selectedVoucher, setSelectedVoucher] = useState<PaymentVoucher | null>(initialVoucher);
-  const [attachmentName, setAttachmentName] = useState<string>(initialData?.transferProofAttachment || '');
+  const [attachmentName, setAttachmentName] = useState<string>(initialData?.transferProofFilename || '');
   const [transferProofBase64, setTransferProofBase64] = useState<string>(initialData?.transferProofBase64 || '');
 
   const [formData, setFormData] = useState({
-    documentNumber: initialData?.documentNumber || '',
+    documentNumber: initialData?.documentNumber || 'Auto',
     linkedVoucherId: initialData?.linkedVoucherId || '',
-    paymentDate: initialData?.paymentDate || new Date().toISOString().split('T')[0],
+    paymentDate: initialData?.paymentDate || getTodayISO(),
     paymentMethod: initialData?.paymentMethod || '',
     transactionReference: initialData?.transactionReference || '',
     confirmedBy: initialData?.confirmedBy || '',
@@ -47,14 +48,8 @@ export function StatementOfPaymentForm({ paymentVouchers, accounts, onSubmit, on
     notes: initialData?.notes || '',
   });
 
-  // Generate document number from Supabase on mount
-  useEffect(() => {
-    if (!initialData) {
-      DocumentNumberService.generateDocumentNumberAsync('statement_of_payment')
-        .then(docNum => setFormData(prev => ({ ...prev, documentNumber: docNum })))
-        .catch(() => setFormData(prev => ({ ...prev, documentNumber: DocumentNumberService.generateDocumentNumber('statement_of_payment') })));
-    }
-  }, [initialData]);
+  // REMOVED: Document number generation moved to service layer at submission time
+  // This prevents race conditions where multiple users get the same number
 
   const handleVoucherSelect = (voucherId: string) => {
     const voucher = paymentVouchers.find(v => v.id === voucherId);
@@ -189,7 +184,7 @@ export function StatementOfPaymentForm({ paymentVouchers, accounts, onSubmit, on
       paymentDate: formData.paymentDate,
       paymentMethod: formData.paymentMethod,
       transactionReference: formData.transactionReference,
-      transferProofAttachment: attachmentName || undefined,
+      transferProofFilename: attachmentName || undefined,
       transferProofBase64: transferProofBase64 || undefined,
       confirmedBy: formData.confirmedBy,
       payeeName: selectedVoucher.payeeName,
@@ -253,18 +248,21 @@ export function StatementOfPaymentForm({ paymentVouchers, accounts, onSubmit, on
               <Input
                 id="documentNumber"
                 value={formData.documentNumber}
+                disabled={!initialData}
+                placeholder="Auto-generated on save"
+                className={!initialData ? 'bg-gray-100 text-gray-600' : ''}
                 onChange={(e) => setFormData({ ...formData, documentNumber: e.target.value })}
               />
+              {!initialData && (
+                <p className="text-xs text-gray-500">Document number will be generated automatically when you save</p>
+              )}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="paymentDate">Payment Date *</Label>
-              <Input
-                id="paymentDate"
-                type="date"
-                value={formData.paymentDate}
-                onChange={(e) => setFormData({ ...formData, paymentDate: e.target.value })}
-              />
-            </div>
+            <DatePicker
+              label="Payment Date"
+              value={formData.paymentDate}
+              onChange={(value) => setFormData({ ...formData, paymentDate: value || getTodayISO() })}
+              required
+            />
           </div>
 
           {/* Link to Payment Voucher */}

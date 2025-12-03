@@ -7,6 +7,7 @@
 
 import { Document } from '../types/document';
 import { Account } from '../types/account';
+import { PublicUser } from '../types/auth';
 import {
   getOrCreateDefaultCompany,
   createAccount,
@@ -15,6 +16,7 @@ import {
   getDocuments,
   CompanyInfo
 } from './supabaseService';
+import { logSystemEvent } from './activityLogService';
 
 const DOCUMENTS_STORAGE_KEY = 'malaysia_japan_documents';
 const ACCOUNTS_STORAGE_KEY = 'malaysia_japan_accounts';
@@ -86,9 +88,12 @@ export function checkLocalData(): MigrationStatus {
 
 /**
  * Migrate data from localStorage to Supabase
+ * @param companyInfo - Optional company info to use during migration
+ * @param user - Optional user for activity logging (if available)
  */
 export async function migrateLocalDataToSupabase(
-  companyInfo?: CompanyInfo
+  companyInfo?: CompanyInfo,
+  user?: PublicUser
 ): Promise<MigrationResult> {
   const result: MigrationResult = {
     success: false,
@@ -190,6 +195,25 @@ export async function migrateLocalDataToSupabase(
     console.log(`Documents migrated: ${result.documentsMigrated}/${localDocuments.length}`);
     console.log(`Errors: ${result.errors.length}`);
     console.log(`Status: ${result.success ? '✓ Success' : '⚠ Completed with errors'}`);
+
+    // Log the migration event if user context is available
+    if (user) {
+      logSystemEvent(
+        'system:data_exported', // Using data_exported as closest match for migration
+        user,
+        `${user.fullName} completed data migration to Supabase`,
+        {
+          migrationType: 'localStorage_to_supabase',
+          accountsMigrated: result.accountsMigrated,
+          documentsMigrated: result.documentsMigrated,
+          totalLocalAccounts: localAccounts.length,
+          totalLocalDocuments: localDocuments.length,
+          errorsCount: result.errors.length,
+          success: result.success,
+          companyId: result.companyId,
+        }
+      );
+    }
 
   } catch (error) {
     result.errors.push(`Migration failed: ${error instanceof Error ? error.message : 'Unknown error'}`);

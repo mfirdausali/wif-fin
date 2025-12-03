@@ -31,6 +31,7 @@ import {
   revokeSession,
   getDeviceInfo,
 } from './sessionService';
+import { logAuthEvent, logSystemEvent } from './activityLogService';
 
 // ============================================================================
 // STORAGE KEYS
@@ -247,6 +248,55 @@ export function updateSecuritySettings(settings: Partial<SecuritySettings>): voi
   localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
 }
 
+/**
+ * Update security settings with activity logging
+ * Use this when you have access to the user context
+ */
+export function updateSecuritySettingsWithLogging(
+  settings: Partial<SecuritySettings>,
+  user: PublicUser
+): void {
+  const current = getSecuritySettings();
+
+  // Calculate what changed
+  const changes: Record<string, { from: unknown; to: unknown }> = {};
+  const settingLabels: Record<keyof SecuritySettings, string> = {
+    maxFailedAttempts: 'Max Failed Login Attempts',
+    lockoutDurationMinutes: 'Lockout Duration (minutes)',
+    sessionTimeoutMinutes: 'Session Timeout (minutes)',
+    rememberMeTimeoutDays: 'Remember Me Timeout (days)',
+    passwordExpiryDays: 'Password Expiry (days)',
+  };
+
+  (Object.keys(settings) as Array<keyof SecuritySettings>).forEach((key) => {
+    if (settings[key] !== undefined && settings[key] !== current[key]) {
+      changes[settingLabels[key] || key] = {
+        from: current[key],
+        to: settings[key],
+      };
+    }
+  });
+
+  // Update settings
+  const updated = { ...current, ...settings };
+  localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
+
+  // Log the change
+  const changedFieldNames = Object.keys(changes);
+  if (changedFieldNames.length > 0) {
+    logSystemEvent(
+      'system:settings_changed',
+      user,
+      `${user.fullName} updated security settings: ${changedFieldNames.join(', ')}`,
+      {
+        settingsType: 'security',
+        changes,
+        newValues: updated,
+      }
+    );
+  }
+}
+
 // ============================================================================
 // AUTHENTICATION LOGIC
 // ============================================================================
@@ -326,7 +376,10 @@ export async function login(
   try {
     // Create server-side session
     const deviceInfo = getDeviceInfo();
-    const sessionToken = await createServerSession(user.id, deviceInfo);
+    const sessionToken = await createServerSession(user.id, deviceInfo, {
+      username: user.username,
+      fullName: user.fullName,
+    });
 
     // Store session data in localStorage
     const settings = getSecuritySettings();
@@ -377,8 +430,12 @@ export async function logout(): Promise<void> {
 
   if (session) {
     try {
-      // Revoke server-side session
-      await revokeSession(session.token);
+      // Revoke server-side session with user info for logging
+      await revokeSession(session.token, {
+        id: session.user.id,
+        username: session.user.username,
+        fullName: session.user.fullName,
+      }, 'user_logout');
     } catch (error) {
       console.error('Failed to revoke server-side session:', error);
       // Continue with client-side logout even if server-side fails
@@ -482,6 +539,24 @@ export function handleFailedLogin(user: User): User {
     const lockedUntil = new Date();
     lockedUntil.setMinutes(lockedUntil.getMinutes() + settings.lockoutDurationMinutes);
 
+    // Log account locked event
+    logAuthEvent('auth:account_locked', {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      fullName: user.fullName,
+      role: user.role,
+      isActive: user.isActive,
+      createdBy: user.createdBy,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    }, {
+      failedAttemptCount: failedAttempts,
+      maxAttempts: settings.maxFailedAttempts,
+      lockedUntil: lockedUntil.toISOString(),
+      lockoutDurationMinutes: settings.lockoutDurationMinutes,
+    });
+
     // Note: Caller should update this in Supabase using updateUserLoginAttempts
     return {
       ...user,
@@ -517,7 +592,28 @@ export function handleSuccessfulLogin(user: User): User {
 /**
  * Unlock user account (admin function)
  */
-export function unlockAccount(user: User): User {
+export function unlockAccount(user: User, unlockedBy?: PublicUser): User {
+  // Log account unlocked event
+  logAuthEvent('auth:account_unlocked', {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    fullName: user.fullName,
+    role: user.role,
+    isActive: user.isActive,
+    createdBy: user.createdBy,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+  }, {
+    previousFailedAttempts: user.failedLoginAttempts,
+    previousLockedUntil: user.lockedUntil,
+    unlockedBy: unlockedBy ? {
+      id: unlockedBy.id,
+      username: unlockedBy.username,
+      fullName: unlockedBy.fullName,
+    } : 'system',
+  });
+
   return {
     ...user,
     failedLoginAttempts: 0,

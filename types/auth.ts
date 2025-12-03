@@ -19,7 +19,7 @@
  * Available user roles in the system
  * Each role has progressively more permissions
  */
-export type UserRole = 'viewer' | 'accountant' | 'manager' | 'admin';
+export type UserRole = 'viewer' | 'accountant' | 'manager' | 'admin' | 'operations';
 
 /**
  * Granular permissions for fine-grained access control
@@ -50,7 +50,14 @@ export type Permission =
   // System permissions
   | 'system:settings'
   | 'system:audit_logs'
-  | 'system:export_data';
+  | 'system:export_data'
+
+  // Booking permissions
+  | 'bookings:view'
+  | 'bookings:create'
+  | 'bookings:edit'
+  | 'bookings:delete'
+  | 'bookings:print';
 
 /**
  * Role-to-Permission mapping
@@ -62,6 +69,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'documents:view',
     'documents:print',
     'accounts:view',
+    'bookings:view',
+    'bookings:print',
   ],
 
   // Accountant: Can create/edit documents but not delete or approve
@@ -73,6 +82,10 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'accounts:view',
     'accounts:create',
     'accounts:edit',
+    'bookings:view',
+    'bookings:create',
+    'bookings:edit',
+    'bookings:print',
   ],
 
   // Manager: Can approve vouchers, manage all documents
@@ -88,6 +101,11 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'accounts:edit',
     'accounts:delete',
     'system:export_data',
+    'bookings:view',
+    'bookings:create',
+    'bookings:edit',
+    'bookings:delete',
+    'bookings:print',
   ],
 
   // Admin: Full system access including user management
@@ -110,6 +128,23 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'system:settings',
     'system:audit_logs',
     'system:export_data',
+    'bookings:view',
+    'bookings:create',
+    'bookings:edit',
+    'bookings:delete',
+    'bookings:print',
+  ],
+
+  // Operations: Limited access to Payment Vouchers and Bookings only
+  operations: [
+    'documents:view',    // Limited to PV only (enforced in UI)
+    'documents:create',  // Limited to PV only (enforced in UI)
+    'documents:edit',    // Limited to PV only (enforced in UI)
+    'documents:print',
+    'bookings:view',
+    'bookings:create',
+    'bookings:edit',
+    'bookings:print',
   ],
 };
 

@@ -8,7 +8,7 @@ import { Textarea } from './ui/textarea';
 import { Progress } from './ui/progress';
 import { CheckCircle2, Building2, Wallet, FileText, Sparkles, ArrowRight, ArrowLeft, Rocket } from 'lucide-react';
 import { Account, AccountType } from '../types/account';
-import { Currency } from '../types/document';
+import { Currency, Country } from '../types/document';
 import { CompanyInfo } from './Settings';
 
 interface OnboardingProps {
@@ -28,13 +28,14 @@ export function Onboarding({ isOpen, onComplete, onSkip }: OnboardingProps) {
     email: 'info@wifjapan.com',
     registrationNo: '(1594364-K)',
     registeredOffice: 'NO.6, LORONG KIRI 10, KAMPUNG DATUK KERAMAT, KUALA LUMPUR, 54000, Malaysia',
+    allowNegativeBalance: false,
   });
 
   const [accountData, setAccountData] = useState({
     name: '',
     type: 'main_bank' as AccountType,
     currency: 'MYR' as Currency,
-    country: 'Malaysia' as 'Malaysia' | 'Japan',
+    country: 'Malaysia' as Country,
     bankName: '',
     accountNumber: '',
     custodian: '',
@@ -281,7 +282,7 @@ export function Onboarding({ isOpen, onComplete, onSkip }: OnboardingProps) {
                     onValueChange={(value) =>
                       setAccountData({
                         ...accountData,
-                        country: value as 'Malaysia' | 'Japan',
+                        country: value as Country,
                         currency: value === 'Malaysia' ? 'MYR' : 'JPY',
                       })
                     }

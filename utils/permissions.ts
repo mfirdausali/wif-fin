@@ -52,12 +52,8 @@ export function canEditDocument(user: PublicUser, document: Document): boolean {
     return false;
   }
 
-  // Accountants can only edit their own draft documents
-  if (user.role === 'accountant') {
-    return document.status === 'draft';
-  }
-
-  // Managers can edit any non-completed document
+  // Accountants and managers can edit any non-completed/cancelled document
+  // (Viewers don't have documents:edit permission, so they won't reach here)
   return true;
 }
 
@@ -277,6 +273,7 @@ export function getRoleDisplayName(role: UserRole): string {
     manager: 'Manager',
     accountant: 'Accountant',
     viewer: 'Viewer',
+    operations: 'Operations',
   };
   return roleNames[role];
 }
@@ -287,9 +284,10 @@ export function getRoleDisplayName(role: UserRole): string {
 export function getRoleDescription(role: UserRole): string {
   const descriptions: Record<UserRole, string> = {
     admin: 'Full system access including user management and system settings',
-    manager: 'Can approve vouchers and manage all documents and accounts',
-    accountant: 'Can create and edit documents and accounts',
+    manager: 'Can approve vouchers, delete documents, and manage all accounts',
+    accountant: 'Can create and edit all documents (invoices, receipts, vouchers, statements)',
     viewer: 'Read-only access to documents and accounts',
+    operations: 'Access to Payment Vouchers and Bookings only (dedicated portal)',
   };
   return descriptions[role];
 }
@@ -303,6 +301,7 @@ export function getRoleBadgeColor(role: UserRole): string {
     manager: 'bg-blue-100 text-blue-800',
     accountant: 'bg-green-100 text-green-800',
     viewer: 'bg-gray-100 text-gray-800',
+    operations: 'bg-emerald-100 text-emerald-800',
   };
   return colors[role];
 }
@@ -369,4 +368,42 @@ export function getPermissionErrorMessage(permission: Permission): string {
     'system:export_data': 'You do not have permission to export data',
   };
   return messages[permission] || 'You do not have permission to perform this action';
+}
+
+// ============================================================================
+// OPERATIONS ROLE HELPERS
+// ============================================================================
+
+/**
+ * Check if user is an operations role user
+ */
+export function isOperationsUser(user: PublicUser): boolean {
+  return user.role === 'operations';
+}
+
+/**
+ * Check if user can access accounts/ledger
+ * Operations users cannot access accounts/ledger
+ */
+export function canAccessAccounts(user: PublicUser): boolean {
+  if (user.role === 'operations') return false;
+  return hasPermission(user, 'accounts:view');
+}
+
+/**
+ * Check if user can access bookings
+ */
+export function canAccessBookings(user: PublicUser): boolean {
+  return hasPermission(user, 'bookings:view');
+}
+
+/**
+ * Get document types accessible by the user
+ * Operations users can only access payment_voucher
+ */
+export function getAccessibleDocumentTypes(user: PublicUser): string[] {
+  if (user.role === 'operations') {
+    return ['payment_voucher'];
+  }
+  return ['invoice', 'receipt', 'payment_voucher', 'statement_of_payment'];
 }

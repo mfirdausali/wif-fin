@@ -1,0 +1,65 @@
+================================================================================
+  STATEMENT OF PAYMENT - TRANSACTION AMOUNT FIX
+  Quick Application Instructions
+================================================================================
+
+ERROR YOU'RE SEEING:
+  "null value in column "amount" of relation "transactions" violates
+   not-null constraint"
+
+SOLUTION:
+  Apply the database trigger fix (takes 2 minutes)
+
+================================================================================
+STEP-BY-STEP INSTRUCTIONS
+================================================================================
+
+1. Open your Supabase Dashboard
+   Go to: https://app.supabase.com/
+   Select your project: [Your WIF Finance Project]
+
+2. Navigate to SQL Editor
+   Click on "SQL Editor" in the left sidebar
+
+3. Create a New Query
+   Click the "+ New query" button
+
+4. Copy the Fix
+   Open this file: QUICK_FIX.sql
+   Copy ALL the contents (Ctrl/Cmd + A, then Ctrl/Cmd + C)
+
+5. Paste and Run
+   Paste into the SQL Editor (Ctrl/Cmd + V)
+   Click "RUN" button (or press Ctrl/Cmd + Enter)
+
+6. Verify Success
+   You should see: "Success. No rows returned"
+   This means the trigger function was updated successfully
+
+7. Test It
+   Go back to your application
+   Try creating a Statement of Payment again
+   It should work now!
+
+================================================================================
+WHAT THIS FIX DOES
+================================================================================
+
+The fix updates the database trigger to handle the case where
+total_deducted is not available yet during document creation.
+
+Before: v_amount = NULL → ERROR
+After:  v_amount = COALESCE(total_deducted, amount) → SUCCESS
+
+================================================================================
+NEED HELP?
+================================================================================
+
+If you get any errors when running the SQL:
+1. Make sure you copied the ENTIRE content of QUICK_FIX.sql
+2. Make sure you're in the SQL Editor (not the Table Editor)
+3. Check that your database user has permission to create functions
+
+For more details, see: TRANSACTION_FIX_SUMMARY.md
+
+================================================================================

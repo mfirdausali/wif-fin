@@ -11,6 +11,8 @@ import { PdfService } from '../services/pdfService';
 import { getCompanyInfoAsync } from './Settings';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
+import { formatDate } from './ui/date-picker';
+import { logDocumentEvent } from '../services/activityLogService';
 
 interface DocumentListProps {
   documents: Document[];
@@ -34,6 +36,14 @@ export function DocumentList({ documents, onEdit, onDelete }: DocumentListProps)
 
       await PdfService.downloadPDF(doc, companyInfo, printerInfo);
       toast.success('PDF downloaded successfully');
+
+      // Log document printed event
+      if (user) {
+        logDocumentEvent('document:printed', user, doc, {
+          printedBy: user.fullName,
+          printDate: new Date().toISOString(),
+        });
+      }
     } catch (error) {
       console.error('PDF download error:', error);
       toast.error('Failed to generate PDF', {
@@ -81,13 +91,6 @@ export function DocumentList({ documents, onEdit, onDelete }: DocumentListProps)
     }).format(amount);
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  };
 
   const filterByType = (type: DocumentType) => {
     return documents.filter(doc => doc.documentType === type)

@@ -21,7 +21,7 @@ import { supabase as supabaseClient, handleSupabaseError } from '../lib/supabase
 
 export const supabase = supabaseClient;
 import type { Database } from '../types/database';
-import { Document, DocumentType, Invoice, Receipt, PaymentVoucher, StatementOfPayment, LineItem } from '../types/document';
+import { Document, DocumentType, Invoice, Receipt, PaymentVoucher, StatementOfPayment, LineItem, Currency, Country } from '../types/document';
 import { Account } from '../types/account';
 import { PublicUser } from '../types/auth';
 import { logDocumentEvent } from './activityLogService';
@@ -613,6 +613,80 @@ export async function unlinkDocumentFromBooking(
 }
 
 /**
+ * Check if a document can be deleted
+ * Validates business rules:
+ * - Payment Vouchers cannot be deleted if referenced by any Statement of Payment
+ * @param documentId - Document ID to check
+ * @returns Object with canDelete flag and optional reason message
+ */
+export async function checkCanDeleteDocument(
+  documentId: string
+): Promise<{ canDelete: boolean; reason?: string }> {
+  try {
+    // Get the document to check its type
+    const { data: docData, error: docError } = await supabase
+      .from('documents')
+      .select('document_type')
+      .eq('id', documentId)
+      .is('deleted_at', null)
+      .maybeSingle();
+
+    if (docError) throw docError;
+    if (!docData) {
+      return { canDelete: false, reason: 'Document not found' };
+    }
+
+    // If it's a payment voucher, check for linked statements
+    if (docData.document_type === 'payment_voucher') {
+      // First, get the payment_vouchers.id from the document_id
+      const { data: voucherData, error: voucherError } = await supabase
+        .from('payment_vouchers')
+        .select('id')
+        .eq('document_id', documentId)
+        .maybeSingle();
+
+      if (voucherError) throw voucherError;
+
+      if (voucherData) {
+        // Check if any ACTIVE (non-deleted) statements reference this voucher
+        const { data: statements, error: statementsError } = await supabase
+          .from('statements_of_payment')
+          .select('id, documents!inner(document_number, deleted_at)')
+          .eq('linked_voucher_id', voucherData.id);
+
+        if (statementsError) throw statementsError;
+
+        // Filter for non-deleted statements only
+        const activeStatements = statements?.filter((sop: any) => {
+          const doc = Array.isArray(sop.documents) ? sop.documents[0] : sop.documents;
+          return doc && !doc.deleted_at;
+        });
+
+        if (activeStatements && activeStatements.length > 0) {
+          const statementDoc = activeStatements[0].documents as any;
+          const statementNumber = Array.isArray(statementDoc)
+            ? statementDoc[0]?.document_number
+            : statementDoc?.document_number;
+
+          return {
+            canDelete: false,
+            reason: `This Payment Voucher is referenced by Statement of Payment ${statementNumber || ''}. Please delete the statement first.`,
+          };
+        }
+      }
+    }
+
+    return { canDelete: true };
+  } catch (error) {
+    console.error('Error checking if document can be deleted:', error);
+    return {
+      canDelete: false,
+      reason: `Failed to validate deletion: ${handleSupabaseError(error)}`,
+    };
+  }
+}
+
+/**
  * Soft delete a document
  * Returns false if document doesn't exist (graceful handling for legacy data)
  */
@@ -629,6 +703,13 @@ export async function deleteDocument(documentId: string): Promise<boolean> {
     if (!existingDoc) {
       console.log(`Document ${documentId} not found in Supabase (may be legacy localStorage data)`);
       return false;
+    }
+
+    // Check if document can be deleted (validates business rules)
+    const validation = await checkCanDeleteDocument(documentId);
+    if (!validation.canDelete) {
+      console.warn('Cannot delete document:', validation.reason);
+      throw new Error(validation.reason || 'Cannot delete document');
     }
 
     const { error } = await supabase
@@ -783,30 +864,46 @@ async function getReceiptData(doc: DbDocument): Promise<Receipt> {
     received_by: 'Unknown',
   };
 
-  // Fetch linked invoice's document number if linkedInvoiceId exists
-  // Using JOIN query for reliability and efficiency
+  // Fetch linked invoice's document number and document_id if linkedInvoiceId exists
+  // Using two-step query for reliability
   let linkedInvoiceNumber: string | undefined;
+  let linkedInvoiceDocumentId: string | undefined;
   if (receiptData.linked_invoice_id) {
+    // Step 1: Get document_id from invoices table
     // The linked_invoice_id in receipts table references invoices.id (NOT documents.id)
-    // We need to: invoices.id -> invoices.document_id -> documents.document_number
-    const { data: invoiceWithDoc, error: lookupError } = await supabase
+    const { data: invoiceData, error: invoiceError } = await supabase
       .from('invoices')
-      .select('document_id, documents(document_number)')
+      .select('document_id')
       .eq('id', receiptData.linked_invoice_id)
       .maybeSingle();
 
-    if (lookupError) {
-      console.warn('[getReceiptData] Failed to lookup linked invoice:', lookupError);
-    } else if (invoiceWithDoc) {
-      // Handle both nested object and array response formats from Supabase
-      const docs = invoiceWithDoc.documents as any;
-      if (docs) {
-        linkedInvoiceNumber = Array.isArray(docs) ? docs[0]?.document_number : docs.document_number;
+    if (invoiceError) {
+      console.error('[getReceiptData] Failed to lookup linked invoice:', invoiceError);
+    } else if (invoiceData?.document_id) {
+      // Store the document_id for navigation
+      linkedInvoiceDocumentId = invoiceData.document_id;
+
+      // Step 2: Get document_number from documents table
+      const { data: documentData, error: documentError } = await supabase
+        .from('documents')
+        .select('document_number')
+        .eq('id', invoiceData.document_id)
+        .maybeSingle();
+
+      if (documentError) {
+        console.error('[getReceiptData] Failed to lookup invoice document number:', documentError);
+      } else if (documentData?.document_number) {
+        linkedInvoiceNumber = documentData.document_number;
+        console.log('[getReceiptData] Successfully resolved invoice number:', linkedInvoiceNumber, 'for receipt:', doc.document_number);
+      } else {
+        console.warn('[getReceiptData] Invoice document found but no document_number for document_id:', invoiceData.document_id);
       }
+    } else {
+      console.warn('[getReceiptData] Invoice not found for linked_invoice_id:', receiptData.linked_invoice_id);
     }
   }
 
-  const receipt = dbDocumentToReceipt(doc, receiptData);
+  const receipt = dbDocumentToReceipt(doc, receiptData, linkedInvoiceDocumentId);
   receipt.linkedInvoiceNumber = linkedInvoiceNumber;
   return receipt;
 }
@@ -850,7 +947,32 @@ async function getStatementOfPaymentData(doc: DbDocument, items: DbLineItem[]): 
     total_deducted: doc.amount,
   };
 
-  return dbDocumentToStatementOfPayment(doc, statementData, items);
+  // Fetch linked voucher's document number if linkedVoucherId exists
+  // Using JOIN query for reliability and efficiency
+  let linkedVoucherNumber: string | undefined;
+  if (statementData.linked_voucher_id) {
+    // The linked_voucher_id in statements_of_payment table references payment_vouchers.id (NOT documents.id)
+    // We need to: payment_vouchers.id -> payment_vouchers.document_id -> documents.document_number
+    const { data: voucherWithDoc, error: lookupError } = await supabase
+      .from('payment_vouchers')
+      .select('document_id, documents(document_number)')
+      .eq('id', statementData.linked_voucher_id)
+      .maybeSingle();
+
+    if (lookupError) {
+      console.warn('[getStatementOfPaymentData] Failed to lookup linked voucher:', lookupError);
+    } else if (voucherWithDoc) {
+      // Handle both nested object and array response formats from Supabase
+      const docs = voucherWithDoc.documents as any;
+      if (docs) {
+        linkedVoucherNumber = Array.isArray(docs) ? docs[0]?.document_number : docs.document_number;
+      }
+    }
+  }
+
+  const statement = dbDocumentToStatementOfPayment(doc, statementData, items);
+  statement.linkedVoucherNumber = linkedVoucherNumber;
+  return statement;
 }
 
 // ============================================================================
@@ -906,8 +1028,8 @@ function dbAccountToAccount(dbAccount: DbAccount): Account {
     id: dbAccount.id,
     name: dbAccount.name,
     type: dbAccount.type as 'main_bank' | 'petty_cash',
-    currency: dbAccount.currency as 'MYR' | 'JPY',
-    country: dbAccount.country as 'Malaysia' | 'Japan',
+    currency: dbAccount.currency as Currency,
+    country: dbAccount.country as Country,
     bankName: dbAccount.bank_name || undefined,
     accountNumber: dbAccount.account_number || undefined,
     custodian: dbAccount.custodian || undefined,
@@ -937,8 +1059,8 @@ function dbDocumentToInvoice(doc: DbDocument, invoiceData: any, items: DbLineIte
     documentNumber: doc.document_number,
     status: doc.status as any,
     date: doc.document_date,
-    currency: doc.currency as 'MYR' | 'JPY',
-    country: doc.country as 'Malaysia' | 'Japan',
+    currency: doc.currency as Currency,
+    country: doc.country as Country,
     amount: doc.amount,
     subtotal: doc.subtotal || 0,
     taxRate: doc.tax_rate || undefined,
@@ -958,15 +1080,15 @@ function dbDocumentToInvoice(doc: DbDocument, invoiceData: any, items: DbLineIte
   };
 }
 
-function dbDocumentToReceipt(doc: DbDocument, receiptData: any): Receipt {
+function dbDocumentToReceipt(doc: DbDocument, receiptData: any, linkedInvoiceDocumentId?: string): Receipt {
   return {
     id: doc.id,
     documentType: 'receipt',
     documentNumber: doc.document_number,
     status: doc.status as any,
     date: doc.document_date,
-    currency: doc.currency as 'MYR' | 'JPY',
-    country: doc.country as 'Malaysia' | 'Japan',
+    currency: doc.currency as Currency,
+    country: doc.country as Country,
     amount: doc.amount,
     subtotal: doc.subtotal || 0,
     taxRate: doc.tax_rate || undefined,
@@ -975,7 +1097,7 @@ function dbDocumentToReceipt(doc: DbDocument, receiptData: any): Receipt {
     accountId: doc.account_id || undefined,
     accountName: undefined, // Will be filled in by caller if needed
     notes: doc.notes || undefined,
-    linkedInvoiceId: receiptData.linked_invoice_id || undefined,
+    linkedInvoiceId: linkedInvoiceDocumentId || receiptData.linked_invoice_id || undefined,
     linkedInvoiceNumber: undefined, // Will be filled in by caller if needed
     payerName: receiptData.payer_name,
     payerContact: receiptData.payer_contact || undefined,
@@ -994,8 +1116,8 @@ function dbDocumentToPaymentVoucher(doc: DbDocument, voucherData: any, items: Db
     documentNumber: doc.document_number,
     status: doc.status as any,
     date: doc.document_date,
-    currency: doc.currency as 'MYR' | 'JPY',
-    country: doc.country as 'Malaysia' | 'Japan',
+    currency: doc.currency as Currency,
+    country: doc.country as Country,
     amount: doc.amount,
     subtotal: doc.subtotal || 0,
     taxRate: doc.tax_rate || undefined,
@@ -1026,8 +1148,8 @@ function dbDocumentToStatementOfPayment(doc: DbDocument, statementData: any, ite
     documentNumber: doc.document_number,
     status: doc.status as any,
     date: doc.document_date,
-    currency: doc.currency as 'MYR' | 'JPY',
-    country: doc.country as 'Malaysia' | 'Japan',
+    currency: doc.currency as Currency,
+    country: doc.country as Country,
     amount: doc.amount,
     subtotal: doc.subtotal || 0,
     taxRate: doc.tax_rate || undefined,
