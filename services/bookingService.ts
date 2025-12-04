@@ -418,12 +418,7 @@ export async function getAllBookingsWithProfit(
     isActive: filters?.isActive !== undefined ? filters.isActive : true
   };
 
-  console.log('Getting bookings with filters:', mergedFilters);
-
   const bookings = await getAllBookings(companyId, mergedFilters);
-
-  console.log(`Retrieved ${bookings.length} bookings, active filter:`, mergedFilters.isActive);
-  console.log('Bookings:', bookings.map(b => ({ id: b.id, code: b.bookingCode, isActive: b.isActive })));
 
   return bookings.map(booking => {
     const profitMargin = booking.b2bPrice > 0
