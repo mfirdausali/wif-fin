@@ -85,6 +85,10 @@ export function AccountBalanceSheet({ account, documents, onBack }: AccountBalan
   const totalCredits = transactions.reduce((sum, txn) => sum + txn.credit, 0);
   const netChange = totalDebits - totalCredits;
 
+  // Calculate correct closing balance from transactions (not from potentially stale account.currentBalance)
+  // Formula: Initial Balance + Total Receipts (debits) - Total Payments (credits)
+  const calculatedBalance = account.initialBalance + totalDebits - totalCredits;
+
   return (
     <div className="space-y-4">
       {/* Header with Back Button */}
@@ -159,10 +163,10 @@ export function AccountBalanceSheet({ account, documents, onBack }: AccountBalan
             </div>
 
             {/* Current Balance */}
-            <div className={`p-4 rounded-lg ${account.currentBalance >= 0 ? 'bg-blue-50' : 'bg-orange-50'}`}>
+            <div className={`p-4 rounded-lg ${calculatedBalance >= 0 ? 'bg-blue-50' : 'bg-orange-50'}`}>
               <div className="text-xs text-gray-600 mb-1">Current Balance</div>
-              <div className={`text-xl font-bold ${account.currentBalance >= 0 ? 'text-blue-700' : 'text-orange-700'}`}>
-                {formatCurrency(account.currentBalance, account.currency)}
+              <div className={`text-xl font-bold ${calculatedBalance >= 0 ? 'text-blue-700' : 'text-orange-700'}`}>
+                {formatCurrency(calculatedBalance, account.currency)}
               </div>
               <div className="text-xs text-gray-500 mt-1">
                 Net: {formatCurrency(netChange, account.currency)}
@@ -294,7 +298,7 @@ export function AccountBalanceSheet({ account, documents, onBack }: AccountBalan
                   {formatCurrency(totalCredits, account.currency)}
                 </div>
                 <div className="col-span-2 text-right text-sm text-blue-700 whitespace-nowrap">
-                  {formatCurrency(account.currentBalance, account.currency)}
+                  {formatCurrency(calculatedBalance, account.currency)}
                 </div>
               </div>
             </div>

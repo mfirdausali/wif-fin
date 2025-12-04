@@ -15,7 +15,7 @@ import {
   Permission,
   ROLE_PERMISSIONS,
 } from '../types/auth';
-import { hashPassword, generateUserId, validatePasswordStrength } from './authService';
+import { hashPasswordAsync, generateUserId, validatePasswordStrength } from './authService';
 
 // ============================================================================
 // USER DATA PERSISTENCE (SUPABASE)
@@ -189,7 +189,7 @@ export async function createUser(
         username: request.username.toLowerCase(),
         email: request.email.toLowerCase(),
         full_name: request.fullName.trim(),
-        password_hash: hashPassword(request.password),
+        password_hash: await hashPasswordAsync(request.password),
         role: request.role,
         is_active: true,
         failed_login_attempts: 0,
@@ -347,7 +347,7 @@ export async function updateUserPassword(
 
     const { error } = await supabase
       .from('users')
-      .update({ password_hash: hashPassword(newPassword) })
+      .update({ password_hash: await hashPasswordAsync(newPassword) })
       .eq('id', userId);
 
     if (error) throw error;
@@ -356,6 +356,29 @@ export async function updateUserPassword(
   } catch (error: any) {
     console.error('Failed to update password:', error);
     return { success: false, error: error.message || 'Failed to update password' };
+  }
+}
+
+/**
+ * Update user password hash directly (for migration)
+ * This is used when migrating from legacy SHA-256 to bcrypt
+ */
+export async function updateUserPasswordHash(
+  userId: string,
+  passwordHash: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase
+      .from('users')
+      .update({ password_hash: passwordHash })
+      .eq('id', userId);
+
+    if (error) throw error;
+
+    return { success: true };
+  } catch (error: any) {
+    console.error('Failed to update password hash:', error);
+    return { success: false, error: error.message || 'Failed to update password hash' };
   }
 }
 
@@ -548,7 +571,7 @@ export async function createInitialAdmin(
         username: username.toLowerCase(),
         email: email.toLowerCase(),
         full_name: fullName.trim(),
-        password_hash: hashPassword(password),
+        password_hash: await hashPasswordAsync(password),
         role: 'admin',
         is_active: true,
         failed_login_attempts: 0,

@@ -256,7 +256,7 @@ export interface AuthSession {
   /** Currently logged in user */
   user: PublicUser;
 
-  /** Session token (for future JWT implementation) */
+  /** Session token (access token) */
   token: string;
 
   /** Session creation time */
@@ -267,6 +267,9 @@ export interface AuthSession {
 
   /** Whether "remember me" was selected */
   rememberMe: boolean;
+
+  /** Refresh token (optional, used for token rotation) */
+  refreshToken?: string;
 }
 
 /**
@@ -286,6 +289,8 @@ export interface LoginResponse {
   session?: AuthSession;
   error?: string;
   errorCode?: 'INVALID_CREDENTIALS' | 'ACCOUNT_LOCKED' | 'ACCOUNT_INACTIVE' | 'SESSION_ERROR';
+  migratedPasswordHash?: string; // New bcrypt hash if password was migrated from SHA-256
+  userId?: string; // User ID for migration purposes
 }
 
 // ============================================================================

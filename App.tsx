@@ -137,74 +137,45 @@ function AppContent() {
       // Add document to local state
       setDocuments(prev => [...prev, createdDoc]);
 
-      // Update account balances using Transaction Service
+      // NOTE: Account balance is updated automatically by database trigger
+      // (create_transaction_on_document_complete in migration 001)
+      // We only need to refresh local state after the trigger runs
       if (createdDoc.accountId && TransactionService.shouldAffectAccount(createdDoc)) {
-        console.log('=== Applying Transaction ===');
+        console.log('=== Transaction Applied by DB Trigger ===');
         console.log('Document:', createdDoc.documentType, createdDoc.documentNumber);
         console.log('Account ID:', createdDoc.accountId);
         console.log('Amount:', createdDoc.amount);
 
-        const accountToUpdate = accounts.find(acc => acc.id === createdDoc.accountId);
-        if (accountToUpdate) {
-          const previousBalance = accountToUpdate.currentBalance;
-          const updatedAccount = TransactionService.applyTransaction(accountToUpdate, createdDoc);
-          await SupabaseService.updateAccount(updatedAccount.id, { currentBalance: updatedAccount.currentBalance });
-          console.log('✓ Account balance updated in Supabase');
+        // Refresh accounts from database to get updated balance from trigger
+        const refreshedAccounts = await SupabaseService.getAccounts(companyId);
+        setAccounts(refreshedAccounts);
+        console.log('✓ Accounts refreshed from database');
 
-          setAccounts(prev => prev.map(acc =>
-            acc.id === updatedAccount.id ? updatedAccount : acc
-          ));
+        // Log the transaction event (for activity log, not balance update)
+        const accountToUpdate = refreshedAccounts.find(acc => acc.id === createdDoc.accountId);
+        if (user && accountToUpdate) {
+          const changeAmount = TransactionService.calculateBalanceChange(createdDoc);
+          const transactionType = changeAmount >= 0 ? 'increase' : 'decrease';
 
-          // Log transaction and balance change
-          if (user) {
-            const changeAmount = updatedAccount.currentBalance - previousBalance;
-            const transactionType = changeAmount >= 0 ? 'increase' : 'decrease';
-
-            // Log transaction applied
-            logTransactionEvent('transaction:applied', user, {
-              accountId: accountToUpdate.id,
-              accountName: accountToUpdate.name,
-              previousBalance,
-              newBalance: updatedAccount.currentBalance,
-              changeAmount,
-              documentId: createdDoc.id,
-              documentNumber: createdDoc.documentNumber,
-              documentType: createdDoc.documentType,
-              transactionType,
-              currency: accountToUpdate.currency,
-            });
-
-            // Log account balance changed
-            logAccountEvent('account:balance_changed', user, updatedAccount, {
-              previousBalance,
-              changeAmount,
-              documentId: createdDoc.id,
-              documentNumber: createdDoc.documentNumber,
-              documentType: createdDoc.documentType,
-              transactionType,
-            });
-          }
+          logTransactionEvent('transaction:applied', user, {
+            accountId: accountToUpdate.id,
+            accountName: accountToUpdate.name,
+            previousBalance: accountToUpdate.currentBalance - changeAmount,
+            newBalance: accountToUpdate.currentBalance,
+            changeAmount,
+            documentId: createdDoc.id,
+            documentNumber: createdDoc.documentNumber,
+            documentType: createdDoc.documentType,
+            transactionType,
+            currency: accountToUpdate.currency,
+          });
         }
       }
 
       // Update related documents
-      if (createdDoc.documentType === 'receipt' && createdDoc.linkedInvoiceId) {
-        // Mark invoice as paid
-        await SupabaseService.updateDocument(createdDoc.linkedInvoiceId, { status: 'paid' });
-        const linkedInvoice = documents.find(doc => doc.id === createdDoc.linkedInvoiceId);
-        setDocuments(prev => prev.map(doc =>
-          doc.id === createdDoc.linkedInvoiceId ? { ...doc, status: 'paid' as const } : doc
-        ));
-
-        // Log status change for invoice
-        if (user && linkedInvoice) {
-          logDocumentEvent('document:status_changed', user, { ...linkedInvoice, status: 'paid' }, {
-            previousStatus: 'issued',
-            newStatus: 'paid',
-            triggeredBy: createdDoc.documentNumber,
-          });
-        }
-      }
+      // NOTE: Invoice payment status is now calculated dynamically from linked receipts
+      // via getInvoicePaymentStatus() - we no longer auto-mark invoices as 'paid'
+      // This supports partial payments and multiple receipts per invoice
 
       if (createdDoc.documentType === 'statement_of_payment') {
         // Mark payment voucher as completed
@@ -267,97 +238,7 @@ function AppContent() {
     }
 
     try {
-      // Update account balances - reverse old and apply new using Transaction Service
-      if (editingDocument.accountId || updatedDocument.accountId) {
-        const accountsToUpdate: Account[] = [];
-        const transactionLogs: Array<{
-          type: 'applied' | 'reversed';
-          account: Account;
-          previousBalance: number;
-          document: Document;
-        }> = [];
-
-        accounts.forEach(acc => {
-          let updatedAcc = acc;
-          const originalBalance = acc.currentBalance;
-
-          // Reverse old document's effect
-          if (acc.id === editingDocument.accountId && TransactionService.shouldAffectAccount(editingDocument)) {
-            const balanceBeforeReverse = updatedAcc.currentBalance;
-            updatedAcc = TransactionService.reverseTransaction(updatedAcc, editingDocument);
-            transactionLogs.push({
-              type: 'reversed',
-              account: { ...acc, currentBalance: updatedAcc.currentBalance },
-              previousBalance: balanceBeforeReverse,
-              document: editingDocument,
-            });
-          }
-
-          // Apply new document's effect
-          if (updatedAcc.id === updatedDocument.accountId && TransactionService.shouldAffectAccount(updatedDocument)) {
-            const balanceBeforeApply = updatedAcc.currentBalance;
-            updatedAcc = TransactionService.applyTransaction(updatedAcc, updatedDocument);
-            transactionLogs.push({
-              type: 'applied',
-              account: { ...acc, currentBalance: updatedAcc.currentBalance },
-              previousBalance: balanceBeforeApply,
-              document: updatedDocument,
-            });
-          }
-
-          if (updatedAcc !== acc || updatedAcc.currentBalance !== originalBalance) {
-            accountsToUpdate.push(updatedAcc);
-          }
-        });
-
-        // Update accounts in Supabase
-        await Promise.all(
-          accountsToUpdate.map(acc =>
-            SupabaseService.updateAccount(acc.id, { currentBalance: acc.currentBalance })
-          )
-        );
-
-        setAccounts(prev => prev.map(acc => {
-          const updated = accountsToUpdate.find(u => u.id === acc.id);
-          return updated || acc;
-        }));
-
-        // Log all transaction changes
-        if (user) {
-          for (const txLog of transactionLogs) {
-            const changeAmount = txLog.account.currentBalance - txLog.previousBalance;
-            const transactionType = changeAmount >= 0 ? 'increase' : 'decrease';
-            const originalAccount = accounts.find(a => a.id === txLog.account.id);
-
-            if (originalAccount) {
-              logTransactionEvent(txLog.type === 'applied' ? 'transaction:applied' : 'transaction:reversed', user, {
-                accountId: originalAccount.id,
-                accountName: originalAccount.name,
-                previousBalance: txLog.previousBalance,
-                newBalance: txLog.account.currentBalance,
-                changeAmount,
-                documentId: txLog.document.id,
-                documentNumber: txLog.document.documentNumber,
-                documentType: txLog.document.documentType,
-                transactionType,
-                currency: originalAccount.currency,
-              });
-
-              logAccountEvent('account:balance_changed', user, { ...originalAccount, currentBalance: txLog.account.currentBalance }, {
-                previousBalance: txLog.previousBalance,
-                changeAmount,
-                documentId: txLog.document.id,
-                documentNumber: txLog.document.documentNumber,
-                documentType: txLog.document.documentType,
-                transactionType,
-                reason: txLog.type === 'reversed' ? 'document_update_reversal' : 'document_update_application',
-              });
-            }
-          }
-        }
-      }
-
-      // Update the document in Supabase
+      // Update the document in Supabase first
       const updatedInSupabase = await SupabaseService.updateDocument(editingDocument.id, updatedDocument);
 
       if (updatedInSupabase) {
@@ -376,6 +257,14 @@ function AppContent() {
       setDocuments(prev => prev.map(doc =>
         doc.id === editingDocument.id ? { ...updatedDocument, id: editingDocument.id, updatedAt: new Date().toISOString() } : doc
       ));
+
+      // Refresh accounts from database to get any balance changes from triggers
+      // Note: For document edits, balance is recalculated based on the updated document data
+      if ((editingDocument.accountId || updatedDocument.accountId) && companyId) {
+        const refreshedAccounts = await SupabaseService.getAccounts(companyId);
+        setAccounts(refreshedAccounts);
+        console.log('✓ Accounts refreshed after document update');
+      }
 
       const typeLabels = {
         invoice: 'Invoice',
@@ -472,69 +361,14 @@ function AppContent() {
     }
 
     try {
-      // Update account balance if document affected accounts (using Transaction Service)
-      if (docToDelete.accountId && TransactionService.shouldAffectAccount(docToDelete)) {
-        const accountToUpdate = accounts.find(acc => acc.id === docToDelete.accountId);
-        if (accountToUpdate) {
-          const previousBalance = accountToUpdate.currentBalance;
-          const updatedAccount = TransactionService.reverseTransaction(accountToUpdate, docToDelete);
-          await SupabaseService.updateAccount(updatedAccount.id, { currentBalance: updatedAccount.currentBalance });
-
-          setAccounts(prev => prev.map(acc =>
-            acc.id === updatedAccount.id ? updatedAccount : acc
-          ));
-
-          // Log transaction reversal and balance change
-          if (user) {
-            const changeAmount = updatedAccount.currentBalance - previousBalance;
-            const transactionType = changeAmount >= 0 ? 'increase' : 'decrease';
-
-            // Log transaction reversed
-            logTransactionEvent('transaction:reversed', user, {
-              accountId: accountToUpdate.id,
-              accountName: accountToUpdate.name,
-              previousBalance,
-              newBalance: updatedAccount.currentBalance,
-              changeAmount,
-              documentId: docToDelete.id,
-              documentNumber: docToDelete.documentNumber,
-              documentType: docToDelete.documentType,
-              transactionType,
-              currency: accountToUpdate.currency,
-            });
-
-            // Log account balance changed
-            logAccountEvent('account:balance_changed', user, updatedAccount, {
-              previousBalance,
-              changeAmount,
-              documentId: docToDelete.id,
-              documentNumber: docToDelete.documentNumber,
-              documentType: docToDelete.documentType,
-              transactionType,
-              reason: 'document_deletion',
-            });
-          }
-        }
-      }
+      // NOTE: Account balance reversal is handled automatically by database trigger
+      // (reverse_transaction_on_document_delete in migration 010)
+      // We will refresh local state after deletion to get the updated balance
 
       // Update related documents
-      if (docToDelete.documentType === 'receipt' && docToDelete.linkedInvoiceId) {
-        // Mark invoice back to issued status
-        await SupabaseService.updateDocument(docToDelete.linkedInvoiceId, { status: 'issued' });
-        const linkedInvoice = documents.find(doc => doc.id === docToDelete.linkedInvoiceId);
-        setDocuments(prev => prev.map(doc =>
-          doc.id === docToDelete.linkedInvoiceId ? { ...doc, status: 'issued' as const } : doc
-        ));
-
-        // Log status change for invoice (reverted from paid to issued)
-        if (user && linkedInvoice) {
-          logDocumentEvent('document:status_changed', user, { ...linkedInvoice, status: 'issued' }, {
-            previousStatus: 'paid',
-            newStatus: 'issued',
-            triggeredBy: `${docToDelete.documentNumber} deleted`,
-          });
-        }
-      }
+      // NOTE: Invoice payment status is calculated dynamically from linked receipts
+      // When a receipt is deleted, the invoice payment status will be recalculated automatically
+      // via getInvoicePaymentStatus() - no manual status revert needed
 
       if (docToDelete.documentType === 'statement_of_payment' && docToDelete.linkedVoucherId) {
         // Mark payment voucher back to issued status
@@ -554,9 +388,16 @@ function AppContent() {
         }
       }
 
-      // Delete the document from Supabase
+      // Delete the document from Supabase (triggers reverse_transaction_on_document_delete)
       await SupabaseService.deleteDocument(documentId);
       console.log('✓ Document deleted from Supabase');
+
+      // Refresh accounts from database to get balance updated by trigger
+      if (docToDelete.accountId && TransactionService.shouldAffectAccount(docToDelete) && companyId) {
+        const refreshedAccounts = await SupabaseService.getAccounts(companyId);
+        setAccounts(refreshedAccounts);
+        console.log('✓ Accounts refreshed after deletion (balance reversed by trigger)');
+      }
 
       // Delete from local state
       setDocuments(prev => prev.filter(doc => doc.id !== documentId));
@@ -586,6 +427,10 @@ function AppContent() {
 
   const getInvoices = (): Invoice[] => {
     return documents.filter(doc => doc.documentType === 'invoice') as Invoice[];
+  };
+
+  const getReceipts = (): Receipt[] => {
+    return documents.filter(doc => doc.documentType === 'receipt') as Receipt[];
   };
 
   const getPaymentVouchers = (): PaymentVoucher[] => {
@@ -794,6 +639,7 @@ function AppContent() {
                 documents={documents}
                 onEdit={user && hasPermission(user, 'documents:edit') ? handleEditDocument : undefined}
                 onDelete={user && hasPermission(user, 'documents:delete') ? handleDeleteDocument : undefined}
+                isLoading={!dataLoaded}
               />
             </TabsContent>
             
@@ -820,6 +666,7 @@ function AppContent() {
                     accounts={accounts}
                     onAddAccount={user && hasPermission(user, 'accounts:create') ? handleAddAccount : undefined}
                     onAccountClick={(account) => setSelectedAccount(account)}
+                    isLoading={!dataLoaded}
                   />
                 </>
               )}
@@ -858,6 +705,7 @@ function AppContent() {
             {selectedType === 'receipt' && (
               <ReceiptForm
                 invoices={getInvoices()}
+                receipts={getReceipts()}
                 accounts={accounts}
                 onSubmit={handleDocumentCreated}
                 onCancel={() => {

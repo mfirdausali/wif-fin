@@ -1123,7 +1123,7 @@ function dbDocumentToReceipt(doc: DbDocument, receiptData: any, linkedInvoiceDoc
     accountId: doc.account_id || undefined,
     accountName: undefined, // Will be filled in by caller if needed
     notes: doc.notes || undefined,
-    linkedInvoiceId: linkedInvoiceDocumentId || receiptData.linked_invoice_id || undefined,
+    linkedInvoiceId: linkedInvoiceDocumentId || undefined, // DO NOT fallback to receiptData.linked_invoice_id - it's invoices.id, not documents.id
     linkedInvoiceNumber: undefined, // Will be filled in by caller if needed
     payerName: receiptData.payer_name,
     payerContact: receiptData.payer_contact || undefined,
@@ -1219,4 +1219,165 @@ function dbDocumentToStatementOfPayment(doc: DbDocument, statementData: any, ite
     createdAt: doc.created_at,
     updatedAt: doc.updated_at,
   };
+}
+
+// ============================================================================
+// INVOICE PAYMENT STATUS
+// ============================================================================
+
+/**
+ * Invoice payment status information
+ */
+export interface InvoicePaymentStatus {
+  invoiceTotal: number;
+  amountPaid: number;
+  balanceDue: number;
+  paymentCount: number;
+  lastPaymentDate?: string;
+  paymentStatus: 'unpaid' | 'partially_paid' | 'fully_paid';
+  percentPaid: number;
+}
+
+/**
+ * Invoice with payment status for receipt form
+ */
+export interface InvoiceWithPaymentStatus extends Invoice {
+  paymentStatus: InvoicePaymentStatus;
+}
+
+/**
+ * Get payment status for an invoice
+ * Calculates total paid, balance due, and payment progress from linked receipts
+ * @param invoiceDocumentId - The document ID of the invoice
+ */
+export async function getInvoicePaymentStatus(
+  invoiceDocumentId: string
+): Promise<InvoicePaymentStatus | null> {
+  try {
+    // First, get the invoice total from documents table
+    const { data: invoiceDoc, error: invoiceError } = await supabase
+      .from('documents')
+      .select('amount, currency')
+      .eq('id', invoiceDocumentId)
+      .eq('document_type', 'invoice')
+      .is('deleted_at', null)
+      .maybeSingle();
+
+    if (invoiceError) throw invoiceError;
+    if (!invoiceDoc) return null;
+
+    const invoiceTotal = invoiceDoc.amount || 0;
+
+    // Get the invoice record to find linked receipts
+    const { data: invoice, error: invError } = await supabase
+      .from('invoices')
+      .select('id')
+      .eq('document_id', invoiceDocumentId)
+      .maybeSingle();
+
+    if (invError) throw invError;
+    if (!invoice) return null;
+
+    // Query linked receipts (non-deleted, completed)
+    const { data: receipts, error: receiptsError } = await supabase
+      .from('receipts')
+      .select(`
+        id,
+        documents!inner (
+          id,
+          amount,
+          document_date,
+          status,
+          deleted_at
+        )
+      `)
+      .eq('linked_invoice_id', invoice.id);
+
+    if (receiptsError) throw receiptsError;
+
+    // Filter and sum payments from active receipts
+    let amountPaid = 0;
+    let paymentCount = 0;
+    let lastPaymentDate: string | undefined;
+
+    if (receipts) {
+      for (const receipt of receipts) {
+        const doc = receipt.documents as any;
+        // Only count non-deleted, completed receipts
+        if (doc && !doc.deleted_at && (doc.status === 'completed' || doc.status === 'paid')) {
+          amountPaid += doc.amount || 0;
+          paymentCount++;
+          if (!lastPaymentDate || doc.document_date > lastPaymentDate) {
+            lastPaymentDate = doc.document_date;
+          }
+        }
+      }
+    }
+
+    const balanceDue = invoiceTotal - amountPaid;
+    const percentPaid = invoiceTotal > 0 ? Math.round((amountPaid / invoiceTotal) * 1000) / 10 : 100;
+
+    // Determine payment status
+    let paymentStatus: 'unpaid' | 'partially_paid' | 'fully_paid';
+    if (amountPaid === 0) {
+      paymentStatus = 'unpaid';
+    } else if (amountPaid >= invoiceTotal) {
+      paymentStatus = 'fully_paid';
+    } else {
+      paymentStatus = 'partially_paid';
+    }
+
+    return {
+      invoiceTotal,
+      amountPaid,
+      balanceDue,
+      paymentCount,
+      lastPaymentDate,
+      paymentStatus,
+      percentPaid,
+    };
+  } catch (error) {
+    console.error('Error getting invoice payment status:', error);
+    return null;
+  }
+}
+
+/**
+ * Get all invoices with their payment status
+ * Used by Receipt form to show remaining balance when linking to invoices
+ */
+export async function getInvoicesWithPaymentStatus(
+  companyId?: string
+): Promise<InvoiceWithPaymentStatus[]> {
+  try {
+    // First get all non-cancelled invoices
+    const allDocs = await getDocuments(companyId);
+    const activeInvoices = allDocs.filter(
+      (doc): doc is Invoice =>
+        doc.documentType === 'invoice' && doc.status !== 'cancelled'
+    );
+
+    // Get payment status for each invoice
+    const invoicesWithStatus: InvoiceWithPaymentStatus[] = await Promise.all(
+      activeInvoices.map(async (invoice) => {
+        const paymentStatus = await getInvoicePaymentStatus(invoice.id);
+        return {
+          ...invoice,
+          paymentStatus: paymentStatus || {
+            invoiceTotal: invoice.total,
+            amountPaid: 0,
+            balanceDue: invoice.total,
+            paymentCount: 0,
+            paymentStatus: 'unpaid' as const,
+            percentPaid: 0,
+          },
+        };
+      })
+    );
+
+    return invoicesWithStatus;
+  } catch (error) {
+    console.error('Error getting invoices with payment status:', error);
+    return [];
+  }
 }

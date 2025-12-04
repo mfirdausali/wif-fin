@@ -16,6 +16,7 @@
  */
 
 import CryptoJS from 'crypto-js';
+import bcrypt from 'bcryptjs';
 import {
   User,
   PublicUser,
@@ -30,6 +31,10 @@ import {
   createSession as createServerSession,
   revokeSession,
   getDeviceInfo,
+  refreshSession as refreshServerSession,
+  getSessionByToken,
+  isSessionExpired as isServerSessionExpired,
+  sessionNeedsRefresh as serverSessionNeedsRefresh,
 } from './sessionService';
 import { logAuthEvent, logSystemEvent } from './activityLogService';
 
@@ -47,10 +52,43 @@ const STORAGE_KEYS = {
 // ============================================================================
 
 /**
- * Hash a password using SHA-256
- * Note: In production with a backend, use bcrypt or argon2
+ * BCRYPT SALT ROUNDS
+ * 12 rounds provides excellent security while maintaining reasonable performance
+ * Increases with hardware improvements over time
  */
-export function hashPassword(password: string): string {
+const BCRYPT_SALT_ROUNDS = 12;
+
+/**
+ * Hash a password using bcrypt (SECURE)
+ * This is the recommended method for all new passwords
+ *
+ * @param password - The plain text password to hash
+ * @returns Promise<string> - The bcrypt hash (format: $2a$12$...)
+ */
+export async function hashPasswordAsync(password: string): Promise<string> {
+  return bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
+}
+
+/**
+ * Verify a password against a bcrypt hash (SECURE)
+ *
+ * @param password - The plain text password to verify
+ * @param hash - The bcrypt hash to verify against
+ * @returns Promise<boolean> - True if password matches
+ */
+export async function verifyPasswordAsync(password: string, hash: string): Promise<boolean> {
+  return bcrypt.compare(password, hash);
+}
+
+/**
+ * LEGACY: Hash a password using SHA-256
+ *
+ * WARNING: This is INSECURE and only kept for backward compatibility
+ * during migration. All new passwords should use hashPasswordAsync()
+ *
+ * @deprecated Use hashPasswordAsync() instead
+ */
+export function hashPasswordLegacy(password: string): string {
   // Add salt for extra security
   const salt = 'WIF_FINANCE_SALT_2025';
   const salted = password + salt;
@@ -58,11 +96,106 @@ export function hashPassword(password: string): string {
 }
 
 /**
- * Verify a password against a hash
+ * LEGACY: Verify a password against a SHA-256 hash
+ *
+ * WARNING: This is INSECURE and only kept for backward compatibility
+ * during migration. All new passwords should use verifyPasswordAsync()
+ *
+ * @deprecated Use verifyPasswordAsync() instead
+ */
+export function verifyPasswordLegacy(password: string, hash: string): boolean {
+  const hashedInput = hashPasswordLegacy(password);
+  return hashedInput === hash;
+}
+
+/**
+ * Detect if a password hash is a legacy SHA-256 hash
+ *
+ * SHA-256 hashes are exactly 64 hexadecimal characters
+ * Bcrypt hashes start with $2a$, $2b$, or $2y$ and are longer
+ *
+ * @param hash - The password hash to check
+ * @returns boolean - True if this is a legacy SHA-256 hash
+ */
+export function isLegacyHash(hash: string): boolean {
+  // SHA-256 produces 64 hex characters
+  return /^[a-f0-9]{64}$/i.test(hash);
+}
+
+/**
+ * Migrate a user's password from SHA-256 to bcrypt
+ *
+ * MIGRATION STRATEGY:
+ * This function is called during login when we detect a legacy hash.
+ * If the user's password is valid, we rehash it with bcrypt and return
+ * the new hash. The caller is responsible for saving it to the database.
+ *
+ * This allows seamless migration - users don't need to reset passwords,
+ * and they're automatically upgraded on their next successful login.
+ *
+ * @param userId - The ID of the user (for logging purposes)
+ * @param password - The plain text password entered during login
+ * @param currentHash - The current password hash from the database
+ * @returns Promise<string | null> - New bcrypt hash if migration needed, null otherwise
+ */
+export async function migratePasswordIfNeeded(
+  userId: string,
+  password: string,
+  currentHash: string
+): Promise<string | null> {
+  // Check if this is a legacy hash
+  if (!isLegacyHash(currentHash)) {
+    // Already using bcrypt, no migration needed
+    return null;
+  }
+
+  // Verify the password using legacy method
+  if (!verifyPasswordLegacy(password, currentHash)) {
+    // Password doesn't match, cannot migrate
+    return null;
+  }
+
+  // Password is valid! Generate new bcrypt hash
+  const newHash = await hashPasswordAsync(password);
+
+  console.log(`Migrating password for user ${userId} from SHA-256 to bcrypt`);
+
+  return newHash;
+}
+
+/**
+ * Verify password with automatic format detection
+ *
+ * This function automatically detects whether the hash is legacy SHA-256
+ * or modern bcrypt, and uses the appropriate verification method.
+ *
+ * @param password - The plain text password to verify
+ * @param hash - The password hash (either SHA-256 or bcrypt)
+ * @returns Promise<boolean> - True if password matches
+ */
+export async function verifyPasswordAuto(password: string, hash: string): Promise<boolean> {
+  if (isLegacyHash(hash)) {
+    return verifyPasswordLegacy(password, hash);
+  } else {
+    return verifyPasswordAsync(password, hash);
+  }
+}
+
+// Backward compatibility: Keep synchronous functions but mark as deprecated
+/**
+ * @deprecated Use hashPasswordAsync() instead
+ */
+export function hashPassword(password: string): string {
+  console.warn('hashPassword() is deprecated and INSECURE. Use hashPasswordAsync() instead.');
+  return hashPasswordLegacy(password);
+}
+
+/**
+ * @deprecated Use verifyPasswordAuto() or verifyPasswordAsync() instead
  */
 export function verifyPassword(password: string, hash: string): boolean {
-  const hashedInput = hashPassword(password);
-  return hashedInput === hash;
+  console.warn('verifyPassword() is deprecated. Use verifyPasswordAuto() or verifyPasswordAsync() instead.');
+  return verifyPasswordLegacy(password, hash);
 }
 
 /**
@@ -350,14 +483,17 @@ export async function login(
     };
   }
 
-  // Verify password
-  if (!user.passwordHash || !verifyPassword(password, user.passwordHash)) {
+  // Verify password (supports both legacy SHA-256 and modern bcrypt)
+  if (!user.passwordHash || !(await verifyPasswordAuto(password, user.passwordHash))) {
     return {
       success: false,
       error: 'Invalid username or password',
       errorCode: 'INVALID_CREDENTIALS',
     };
   }
+
+  // Check if password needs migration from SHA-256 to bcrypt
+  const migratedHash = await migratePasswordIfNeeded(user.id, password, user.passwordHash);
 
   // Success! Create server-side session
   const publicUser: PublicUser = {
@@ -374,12 +510,17 @@ export async function login(
   };
 
   try {
-    // Create server-side session
+    // Create server-side session with rememberMe flag
     const deviceInfo = getDeviceInfo();
-    const sessionToken = await createServerSession(user.id, deviceInfo, {
-      username: user.username,
-      fullName: user.fullName,
-    });
+    const sessionToken = await createServerSession(
+      user.id,
+      deviceInfo,
+      {
+        username: user.username,
+        fullName: user.fullName,
+      },
+      rememberMe
+    );
 
     // Store session data in localStorage
     const settings = getSecuritySettings();
@@ -410,6 +551,8 @@ export async function login(
     return {
       success: true,
       session,
+      migratedPasswordHash: migratedHash || undefined,
+      userId: user.id,
     };
   } catch (error) {
     console.error('Failed to create server-side session:', error);
@@ -468,19 +611,19 @@ export function isAuthenticated(): boolean {
 /**
  * Change user password
  */
-export function changePassword(
+export async function changePassword(
   userId: string,
   request: ChangePasswordRequest,
   users: User[]
-): { success: boolean; error?: string } {
+): Promise<{ success: boolean; error?: string }> {
   const user = users.find((u) => u.id === userId);
 
   if (!user) {
     return { success: false, error: 'User not found' };
   }
 
-  // Verify current password
-  if (!user.passwordHash || !verifyPassword(request.currentPassword, user.passwordHash)) {
+  // Verify current password (supports both legacy SHA-256 and modern bcrypt)
+  if (!user.passwordHash || !(await verifyPasswordAuto(request.currentPassword, user.passwordHash))) {
     return { success: false, error: 'Current password is incorrect' };
   }
 
@@ -495,7 +638,7 @@ export function changePassword(
     return { success: false, error: validation.errors.join('. ') };
   }
 
-  // Success - password will be hashed by caller
+  // Success - password will be hashed by caller using hashPasswordAsync
   return { success: true };
 }
 
@@ -638,4 +781,149 @@ export function isSystemInitialized(users: User[]): boolean {
  */
 export function generateUserId(): string {
   return `USER-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// ============================================================================
+// SESSION VALIDATION AND REFRESH
+// ============================================================================
+
+/**
+ * Validate and refresh session on app startup
+ * This function checks if the current session is valid and attempts to refresh it if needed
+ *
+ * @returns Promise<AuthSession | null> - Valid session or null if session cannot be restored
+ */
+export async function validateAndRefreshSession(): Promise<AuthSession | null> {
+  try {
+    // Get session from localStorage
+    const stored = localStorage.getItem(STORAGE_KEYS.SESSION);
+    if (!stored) {
+      console.log('No stored session found');
+      return null;
+    }
+
+    const sessionData = JSON.parse(stored) as AuthSession & { refreshToken?: string };
+
+    // Check if we have a refresh token
+    if (!sessionData.refreshToken) {
+      console.log('No refresh token found in session');
+      clearSession();
+      return null;
+    }
+
+    // Get the server-side session
+    const serverSession = await getSessionByToken(sessionData.token);
+
+    if (!serverSession) {
+      console.log('Server session not found');
+      // Try to refresh using refresh token
+      return await attemptSessionRefresh(sessionData.refreshToken, sessionData);
+    }
+
+    // Check if session is expired
+    if (isServerSessionExpired(serverSession)) {
+      console.log('Session has expired, attempting refresh');
+      return await attemptSessionRefresh(sessionData.refreshToken, sessionData);
+    }
+
+    // Check if session needs refresh (within 5 minutes of expiry)
+    if (serverSessionNeedsRefresh(serverSession)) {
+      console.log('Session needs refresh, attempting proactive refresh');
+      const refreshed = await attemptSessionRefresh(sessionData.refreshToken, sessionData);
+      if (refreshed) {
+        return refreshed;
+      }
+      // If refresh fails but session is still valid, continue with current session
+      console.log('Refresh failed but session still valid, continuing');
+    }
+
+    // Session is valid, return it
+    return sessionData;
+  } catch (error) {
+    console.error('Error validating session:', error);
+    clearSession();
+    return null;
+  }
+}
+
+/**
+ * Attempt to refresh a session using refresh token
+ *
+ * @param refreshToken - The refresh token to use
+ * @param currentSession - The current session data
+ * @returns Promise<AuthSession | null> - New session or null if refresh failed
+ */
+async function attemptSessionRefresh(
+  refreshToken: string,
+  currentSession: AuthSession
+): Promise<AuthSession | null> {
+  try {
+    console.log('Attempting to refresh session');
+
+    // Call server to refresh session
+    const newSessionToken = await refreshServerSession(refreshToken);
+
+    if (!newSessionToken) {
+      console.error('Failed to refresh session - refresh token invalid or expired');
+      clearSession();
+      return null;
+    }
+
+    console.log('Session refreshed successfully');
+
+    // Create new session object with updated tokens
+    const settings = getSecuritySettings();
+    const now = new Date();
+    const expiresAt = new Date(now);
+
+    if (currentSession.rememberMe) {
+      expiresAt.setDate(expiresAt.getDate() + settings.rememberMeTimeoutDays);
+    } else {
+      expiresAt.setMinutes(expiresAt.getMinutes() + settings.sessionTimeoutMinutes);
+    }
+
+    const newSession: AuthSession = {
+      user: currentSession.user,
+      token: newSessionToken.token,
+      createdAt: now.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      rememberMe: currentSession.rememberMe,
+    };
+
+    // Store new session with refresh token
+    const sessionData = {
+      ...newSession,
+      refreshToken: newSessionToken.refreshToken,
+    };
+
+    localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(sessionData));
+
+    return newSession;
+  } catch (error) {
+    console.error('Error refreshing session:', error);
+    clearSession();
+    return null;
+  }
+}
+
+/**
+ * Check if current session is valid
+ * Lightweight check without server validation
+ *
+ * @returns boolean - True if session exists and hasn't expired locally
+ */
+export function isSessionValid(): boolean {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEYS.SESSION);
+    if (!stored) return false;
+
+    const session = JSON.parse(stored) as AuthSession;
+    const now = new Date();
+    const expiresAt = new Date(session.expiresAt);
+
+    return now <= expiresAt;
+  } catch (error) {
+    console.error('Error checking session validity:', error);
+    return false;
+  }
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -12,18 +12,64 @@ import { Alert, AlertDescription } from './ui/alert';
 import { useAuth } from '../contexts/AuthContext';
 import { DatePicker, getTodayISO } from './ui/date-picker';
 
+// Payment status info for an invoice
+interface InvoicePaymentInfo {
+  invoiceTotal: number;
+  amountPaid: number;
+  balanceDue: number;
+  paymentCount: number;
+  paymentStatus: 'unpaid' | 'partially_paid' | 'fully_paid';
+}
+
 interface ReceiptFormProps {
   invoices: Invoice[];
+  receipts: Receipt[]; // All receipts for calculating payment status
   accounts: Account[];
   onSubmit: (receipt: Receipt) => void;
   onCancel: () => void;
   initialData?: Receipt;
 }
 
-export function ReceiptForm({ invoices, accounts, onSubmit, onCancel, initialData }: ReceiptFormProps) {
+export function ReceiptForm({ invoices, receipts, accounts, onSubmit, onCancel, initialData }: ReceiptFormProps) {
   const { user } = useAuth();
   const [validationError, setValidationError] = useState<string | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+
+  // Calculate payment status for each invoice from receipts
+  const invoicePaymentMap = useMemo(() => {
+    const map = new Map<string, InvoicePaymentInfo>();
+
+    for (const invoice of invoices) {
+      // Find all receipts linked to this invoice (excluding cancelled/deleted)
+      const linkedReceipts = receipts.filter(
+        r => r.linkedInvoiceId === invoice.id &&
+             r.status !== 'cancelled' &&
+             (r.status === 'completed' || r.status === 'paid')
+      );
+
+      const amountPaid = linkedReceipts.reduce((sum, r) => sum + (r.amount || 0), 0);
+      const balanceDue = invoice.total - amountPaid;
+
+      let paymentStatus: 'unpaid' | 'partially_paid' | 'fully_paid';
+      if (amountPaid === 0) {
+        paymentStatus = 'unpaid';
+      } else if (amountPaid >= invoice.total) {
+        paymentStatus = 'fully_paid';
+      } else {
+        paymentStatus = 'partially_paid';
+      }
+
+      map.set(invoice.id, {
+        invoiceTotal: invoice.total,
+        amountPaid,
+        balanceDue,
+        paymentCount: linkedReceipts.length,
+        paymentStatus,
+      });
+    }
+
+    return map;
+  }, [invoices, receipts]);
 
   const [formData, setFormData] = useState({
     documentNumber: initialData?.documentNumber || 'Auto',
@@ -47,11 +93,15 @@ export function ReceiptForm({ invoices, accounts, onSubmit, onCancel, initialDat
     const invoice = invoices.find(inv => inv.id === invoiceId);
     if (invoice) {
       setSelectedInvoice(invoice);
+      // Pre-fill with balance due (remaining amount) instead of full invoice total
+      // This supports partial payments - user can still edit the amount
+      const paymentInfo = invoicePaymentMap.get(invoice.id);
+      const balanceDue = paymentInfo?.balanceDue ?? invoice.total;
       setFormData({
         ...formData,
         linkedInvoiceId: invoiceId,
         payerName: invoice.customerName,
-        amount: invoice.total.toString(),
+        amount: balanceDue > 0 ? balanceDue.toString() : invoice.total.toString(),
         currency: invoice.currency,
         country: invoice.country,
         accountId: invoice.accountId || '',
@@ -124,7 +174,11 @@ export function ReceiptForm({ invoices, accounts, onSubmit, onCancel, initialDat
     onSubmit(receipt);
   };
 
-  const unpaidInvoices = invoices.filter(inv => inv.status !== 'paid');
+  // Show all invoices that can receive payments:
+  // - Not cancelled (cancelled invoices can't receive payments)
+  // - Includes 'issued', 'paid', 'completed' - all can receive additional receipts
+  // Payment status (unpaid/partially_paid/fully_paid) is calculated dynamically
+  const linkableInvoices = invoices.filter(inv => inv.status !== 'cancelled');
 
   return (
     <Card>
@@ -165,7 +219,7 @@ export function ReceiptForm({ invoices, accounts, onSubmit, onCancel, initialDat
           </div>
 
           {/* Link to Invoice */}
-          {unpaidInvoices.length > 0 && (
+          {linkableInvoices.length > 0 && (
             <div className="space-y-2 p-4 bg-blue-50 rounded-lg">
               <Label htmlFor="linkedInvoice">Link to Invoice (Optional)</Label>
               <Select
@@ -177,13 +231,53 @@ export function ReceiptForm({ invoices, accounts, onSubmit, onCancel, initialDat
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">No invoice link</SelectItem>
-                  {unpaidInvoices.map((invoice) => (
-                    <SelectItem key={invoice.id} value={invoice.id}>
-                      {invoice.documentNumber} - {invoice.customerName} - {invoice.currency} {invoice.total.toFixed(2)}
-                    </SelectItem>
-                  ))}
+                  {linkableInvoices.map((invoice) => {
+                    const paymentInfo = invoicePaymentMap.get(invoice.id);
+                    const statusLabel = paymentInfo?.paymentStatus === 'fully_paid' ? ' [PAID]' :
+                                       paymentInfo?.paymentStatus === 'partially_paid' ? ' [PARTIAL]' : '';
+                    const balanceText = paymentInfo && paymentInfo.amountPaid > 0
+                      ? ` (Due: ${invoice.currency} ${paymentInfo.balanceDue.toFixed(2)})`
+                      : '';
+                    return (
+                      <SelectItem key={invoice.id} value={invoice.id}>
+                        {invoice.documentNumber} - {invoice.customerName} - {invoice.currency} {invoice.total.toFixed(2)}{statusLabel}{balanceText}
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
+            </div>
+          )}
+
+          {/* Payment Summary - shown when invoice is linked */}
+          {selectedInvoice && invoicePaymentMap.get(selectedInvoice.id) && (
+            <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm font-semibold text-indigo-700">Invoice Payment Summary</span>
+                <span className="text-xs text-gray-500">
+                  {invoicePaymentMap.get(selectedInvoice.id)?.paymentCount || 0} payment(s)
+                </span>
+              </div>
+              <div className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Invoice Total:</span>
+                  <span className="font-medium">{selectedInvoice.currency} {selectedInvoice.total.toFixed(2)}</span>
+                </div>
+                {(invoicePaymentMap.get(selectedInvoice.id)?.amountPaid || 0) > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Already Paid:</span>
+                    <span className="font-medium text-green-600">
+                      {selectedInvoice.currency} {invoicePaymentMap.get(selectedInvoice.id)?.amountPaid.toFixed(2)}
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span className="font-semibold text-gray-600">Balance Due:</span>
+                  <span className="font-semibold text-indigo-600">
+                    {selectedInvoice.currency} {invoicePaymentMap.get(selectedInvoice.id)?.balanceDue.toFixed(2)}
+                  </span>
+                </div>
+              </div>
             </div>
           )}
 

@@ -21,10 +21,10 @@ import {
 import {
   login as authLogin,
   logout as authLogout,
-  getCurrentUser,
   isAuthenticated,
   refreshSession,
   handleFailedLogin,
+  validateAndRefreshSession,
   // hashPassword,
 } from '../services/authService';
 import {
@@ -36,6 +36,7 @@ import {
   deactivateUser,
   createInitialAdmin,
   updateUserPassword,
+  updateUserPasswordHash,
   // getUserStats,
   getAllUsers,
   toPublicUser,
@@ -107,12 +108,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // Check for existing session
+        // Check for existing session and validate/refresh if needed
         if (isAuthenticated()) {
-          const currentUser = getCurrentUser();
-          if (currentUser) {
-            setUser(currentUser);
-            refreshSession();
+          console.log('Found existing session, validating...');
+          const validSession = await validateAndRefreshSession();
+
+          if (validSession) {
+            console.log('Session validated successfully');
+            setUser(validSession.user);
+          } else {
+            console.log('Session validation failed, user needs to login');
+            // Session expired or invalid, user will need to login
           }
         }
 
@@ -242,12 +248,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Success - update user
     if (result.session) {
-      const loginUser = allUsers.find((u) => u.id === result.session!.user.id);
-      if (loginUser) {
-        // Update in Supabase
-        const { updateUserLastLogin } = await import('../services/userService');
-        await updateUserLastLogin(loginUser.id);
+      // Check if password was migrated from SHA-256 to bcrypt
+      if (result.migratedPasswordHash && result.userId) {
+        console.log('Password was migrated to bcrypt, updating database...');
+        await updateUserPasswordHash(result.userId, result.migratedPasswordHash);
+        toast.success('Your password security has been upgraded!', {
+          description: 'We\'ve automatically enhanced your password security.',
+        });
       }
+
+      // Update last login in Supabase
+      const { updateUserLastLogin } = await import('../services/userService');
+      await updateUserLastLogin(result.session.user.id);
 
       setUser(result.session.user);
       const publicUsers = await getAllUsers();

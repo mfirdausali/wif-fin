@@ -52,8 +52,18 @@ export interface SessionToken {
 // CONSTANTS
 // ============================================================================
 
-const SESSION_DURATION = 24 * 60 * 60 * 1000; // 24 hours
-// const REFRESH_TOKEN_DURATION = 7 * 24 * 60 * 60 * 1000; // 7 days (reserved for future use)
+// Access token lifetime: 1 hour
+const ACCESS_TOKEN_DURATION = 60 * 60 * 1000; // 1 hour (3600 seconds)
+
+// Refresh token lifetime: 7 days by default
+const REFRESH_TOKEN_DURATION = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+// Remember me extends refresh token to 30 days
+const REMEMBER_ME_DURATION = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+// Refresh grace period: refresh within 5 minutes of expiry
+const REFRESH_GRACE_PERIOD = 5 * 60 * 1000; // 5 minutes
+
 const TOKEN_LENGTH = 64; // 64 bytes = 512 bits
 
 // ============================================================================
@@ -91,7 +101,8 @@ export async function createSession(
   userInfo?: {
     username: string;
     fullName?: string;
-  }
+  },
+  rememberMe: boolean = false
 ): Promise<SessionToken> {
   try {
     // Generate tokens
@@ -100,16 +111,25 @@ export async function createSession(
     const tokenHash = hashToken(token);
     const refreshTokenHash = hashToken(refreshToken);
 
-    // Calculate expiry
-    const expiresAt = new Date(Date.now() + SESSION_DURATION).toISOString();
+    // Calculate expiry based on remember me option
+    const now = Date.now();
+    // Access token always expires in 1 hour
+    const expiresAt = new Date(now + ACCESS_TOKEN_DURATION).toISOString();
 
-    // Insert session into database
+    // Insert session into database with metadata
     const sessionInsert: SessionInsert = {
       user_id: userId,
       token_hash: tokenHash,
       refresh_token_hash: refreshTokenHash,
-      device_info: deviceInfo || {},
+      device_info: {
+        ...(deviceInfo || {}),
+        rememberMe,
+        refreshTokenExpiresAt: new Date(
+          now + (rememberMe ? REMEMBER_ME_DURATION : REFRESH_TOKEN_DURATION)
+        ).toISOString(),
+      },
       expires_at: expiresAt,
+      last_activity: new Date().toISOString(),
     };
 
     const { data, error } = await (supabase
@@ -137,6 +157,9 @@ export async function createSession(
         sessionId: (data as SessionRow).id,
         deviceInfo: deviceInfo || {},
         expiresAt,
+        rememberMe,
+        accessTokenDuration: ACCESS_TOKEN_DURATION / 1000, // in seconds
+        refreshTokenDuration: (rememberMe ? REMEMBER_ME_DURATION : REFRESH_TOKEN_DURATION) / 1000, // in seconds
       });
     }
 
@@ -197,12 +220,69 @@ export async function validateSession(token: string): Promise<string | null> {
   }
 }
 
+/**
+ * Check if session is expired
+ */
+export function isSessionExpired(session: Session): boolean {
+  const now = new Date();
+  const expiresAt = new Date(session.expiresAt);
+  return now > expiresAt;
+}
+
+/**
+ * Check if session needs refresh (within 5 minutes of expiry)
+ */
+export function sessionNeedsRefresh(session: Session): boolean {
+  const now = new Date();
+  const expiresAt = new Date(session.expiresAt);
+  const timeUntilExpiry = expiresAt.getTime() - now.getTime();
+
+  // Session needs refresh if it expires within the grace period
+  return timeUntilExpiry > 0 && timeUntilExpiry <= REFRESH_GRACE_PERIOD;
+}
+
+/**
+ * Get session by token (for validation and refresh operations)
+ */
+export async function getSessionByToken(token: string): Promise<Session | null> {
+  try {
+    const tokenHash = hashToken(token);
+
+    const { data, error } = await supabase
+      .from('sessions')
+      .select('*')
+      .eq('token_hash', tokenHash)
+      .single();
+
+    if (error || !data) {
+      return null;
+    }
+
+    const sessionData = data as SessionRow;
+
+    return {
+      id: sessionData.id,
+      userId: sessionData.user_id,
+      tokenHash: sessionData.token_hash,
+      refreshTokenHash: sessionData.refresh_token_hash,
+      deviceInfo: sessionData.device_info as { userAgent?: string; ipAddress?: string; deviceName?: string },
+      lastActivity: sessionData.last_activity,
+      expiresAt: sessionData.expires_at,
+      createdAt: sessionData.created_at,
+    };
+  } catch (error) {
+    console.error('Failed to get session:', error);
+    return null;
+  }
+}
+
 // ============================================================================
 // SESSION REFRESH
 // ============================================================================
 
 /**
  * Refresh a session using refresh token
+ * Implements single-use token rotation for security
  */
 export async function refreshSession(
   refreshToken: string
@@ -213,23 +293,65 @@ export async function refreshSession(
     // Find session by refresh token
     const { data: session, error } = await supabase
       .from('sessions')
-      .select('id, user_id, device_info')
+      .select('*')
       .eq('refresh_token_hash', refreshTokenHash)
       .single();
 
     if (error || !session) {
+      console.error('Refresh token not found or invalid');
       return null;
     }
 
-    const sessionData = session as Pick<SessionRow, 'id' | 'user_id' | 'device_info'>;
+    const sessionData = session as SessionRow;
+    const deviceInfo = sessionData.device_info as {
+      userAgent?: string;
+      ipAddress?: string;
+      deviceName?: string;
+      rememberMe?: boolean;
+      refreshTokenExpiresAt?: string;
+    };
 
-    // Revoke old session
+    // Check if refresh token has expired
+    if (deviceInfo.refreshTokenExpiresAt) {
+      const refreshExpiresAt = new Date(deviceInfo.refreshTokenExpiresAt);
+      if (new Date() > refreshExpiresAt) {
+        console.error('Refresh token has expired');
+        // Revoke the session
+        await revokeSessionById(sessionData.id);
+        return null;
+      }
+    }
+
+    // Revoke old session (single-use token)
     await revokeSessionById(sessionData.id);
 
-    // Create new session
+    // Log session refresh event
+    logAuthEvent('auth:session_created', {
+      id: sessionData.user_id,
+      username: 'user',
+      email: '',
+      fullName: 'User',
+      role: 'viewer',
+      isActive: true,
+      createdBy: 'system',
+      createdAt: '',
+      updatedAt: '',
+    }, {
+      reason: 'session_refreshed',
+      previousSessionId: sessionData.id,
+      deviceInfo,
+    });
+
+    // Create new session with new tokens (token rotation)
     return await createSession(
       sessionData.user_id,
-      sessionData.device_info as { userAgent?: string; ipAddress?: string; deviceName?: string } | undefined
+      {
+        userAgent: deviceInfo.userAgent,
+        ipAddress: deviceInfo.ipAddress,
+        deviceName: deviceInfo.deviceName,
+      },
+      undefined,
+      deviceInfo.rememberMe || false
     );
   } catch (error) {
     console.error('Session refresh error:', error);
