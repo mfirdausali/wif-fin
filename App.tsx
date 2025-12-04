@@ -88,7 +88,7 @@ function AppContent() {
     }
 
     loadData();
-  }, [user]);
+  }, [user?.id]);
 
 
   // Check if onboarding should be shown
