@@ -58,6 +58,9 @@ function AppContent() {
 
   // Initialize company and load data from Supabase on mount
   useEffect(() => {
+    // Wait for user to be loaded before fetching data
+    if (!user) return;
+
     async function loadData() {
       try {
         // Get or create default company
@@ -85,7 +88,7 @@ function AppContent() {
     }
 
     loadData();
-  }, []);
+  }, [user]);
 
 
   // Check if onboarding should be shown
