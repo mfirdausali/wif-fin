@@ -338,15 +338,23 @@ export async function createDocument(
 }
 
 /**
- * Get all documents for a company
+ * Get all documents for a company - OPTIMIZED version using joins
  * @param companyId - Company ID
  * @param userRole - Optional user role to filter documents (operations users only see payment_voucher)
  */
 export async function getDocuments(companyId: string, userRole?: string): Promise<Document[]> {
   try {
+    // Use Supabase joins to fetch everything in ONE query
     let query = supabase
       .from('documents')
-      .select('*')
+      .select(`
+        *,
+        line_items (*),
+        invoices (*),
+        receipts (*),
+        payment_vouchers (*),
+        statements_of_payment (*)
+      `)
       .eq('company_id', companyId)
       .is('deleted_at', null);
 
@@ -359,10 +367,53 @@ export async function getDocuments(companyId: string, userRole?: string): Promis
 
     if (error) throw error;
 
-    // Fetch complete documents with type-specific data
-    const documents = await Promise.all(
-      (data || []).map(doc => getDocument(doc.id, doc.document_type as DocumentType))
-    );
+    // Transform the joined data into Document objects
+    const documents: Document[] = (data || []).map(doc => {
+      const items = doc.line_items || [];
+      const documentType = doc.document_type as DocumentType;
+
+      switch (documentType) {
+        case 'invoice': {
+          const invoiceData = doc.invoices?.[0] || {
+            customer_name: 'Unknown',
+            invoice_date: doc.document_date,
+            due_date: doc.document_date,
+          };
+          return dbDocumentToInvoice(doc, invoiceData, items);
+        }
+        case 'receipt': {
+          const receiptData = doc.receipts?.[0] || {
+            payer_name: 'Unknown',
+            receipt_date: doc.document_date,
+            payment_method: 'Unknown',
+            received_by: 'Unknown',
+          };
+          return dbDocumentToReceipt(doc, receiptData, undefined);
+        }
+        case 'payment_voucher': {
+          const voucherData = doc.payment_vouchers?.[0] || {
+            payee_name: 'Unknown',
+            voucher_date: doc.document_date,
+            requested_by: 'Unknown',
+          };
+          return dbDocumentToPaymentVoucher(doc, voucherData, items);
+        }
+        case 'statement_of_payment': {
+          const statementData = doc.statements_of_payment?.[0] || {
+            linked_voucher_id: '',
+            payment_date: doc.document_date,
+            payment_method: 'Unknown',
+            transaction_reference: 'Unknown',
+            confirmed_by: 'Unknown',
+            payee_name: 'Unknown',
+            total_deducted: doc.amount,
+          };
+          return dbDocumentToStatementOfPayment(doc, statementData, items);
+        }
+        default:
+          throw new Error(`Unknown document type: ${documentType}`);
+      }
+    });
 
     return documents;
   } catch (error) {
