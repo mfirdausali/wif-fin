@@ -14,7 +14,6 @@ import { logBookingEvent } from '../services/activityLogService';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { canCreateBookings, canEditBooking, canDeleteBookings } from '../utils/permissions';
-import { SkeletonBookingList } from './ui/skeleton';
 
 interface BookingManagementProps {
   companyId: string;
@@ -218,13 +217,8 @@ export function BookingManagement({ companyId }: BookingManagementProps) {
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        {/* Skeleton for "New Booking" button */}
-        <div className="flex justify-end">
-          <div className="h-10 w-32 bg-gray-200 animate-pulse rounded-md" />
-        </div>
-        {/* Skeleton booking cards */}
-        <SkeletonBookingList count={4} />
+      <div className="flex items-center justify-center py-12">
+        <p className="text-gray-500">Loading bookings...</p>
       </div>
     );
   }

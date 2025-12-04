@@ -1,11 +1,11 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { ScrollArea } from './ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { Document, DocumentType, Invoice, Receipt as ReceiptType } from '../types/document';
-import { FileText, Receipt, FileCheck, CheckCircle2, Calendar, DollarSign, Edit, Trash2, Download, Loader2, Paperclip, CreditCard } from 'lucide-react';
+import { Document, DocumentType } from '../types/document';
+import { FileText, Receipt, FileCheck, CheckCircle2, Calendar, DollarSign, Edit, Trash2, Download, Loader2, Paperclip } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from './ui/alert-dialog';
 import { PdfService } from '../services/pdfService';
 import { getCompanyInfoAsync } from './Settings';
@@ -13,65 +13,16 @@ import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { formatDate } from './ui/date-picker';
 import { logDocumentEvent } from '../services/activityLogService';
-import { SkeletonDocumentList } from './ui/skeleton';
-
-// Payment status info for an invoice
-interface InvoicePaymentInfo {
-  amountPaid: number;
-  balanceDue: number;
-  paymentCount: number;
-  paymentStatus: 'unpaid' | 'partially_paid' | 'fully_paid';
-  percentPaid: number;
-}
 
 interface DocumentListProps {
   documents: Document[];
   onEdit?: (document: Document) => void;
   onDelete?: (documentId: string) => void;
-  isLoading?: boolean;
 }
 
-export function DocumentList({ documents, onEdit, onDelete, isLoading = false }: DocumentListProps) {
+export function DocumentList({ documents, onEdit, onDelete }: DocumentListProps) {
   const { user } = useAuth();
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
-
-  // Calculate payment status for each invoice
-  const invoicePaymentMap = useMemo(() => {
-    const map = new Map<string, InvoicePaymentInfo>();
-    const invoices = documents.filter(d => d.documentType === 'invoice') as Invoice[];
-    const receipts = documents.filter(d => d.documentType === 'receipt') as ReceiptType[];
-
-    for (const invoice of invoices) {
-      const linkedReceipts = receipts.filter(
-        r => r.linkedInvoiceId === invoice.id &&
-             r.status !== 'cancelled' &&
-             (r.status === 'completed' || r.status === 'paid')
-      );
-
-      const amountPaid = linkedReceipts.reduce((sum, r) => sum + (r.amount || 0), 0);
-      const balanceDue = invoice.total - amountPaid;
-      const percentPaid = invoice.total > 0 ? Math.round((amountPaid / invoice.total) * 1000) / 10 : 100;
-
-      let paymentStatus: 'unpaid' | 'partially_paid' | 'fully_paid';
-      if (amountPaid === 0) {
-        paymentStatus = 'unpaid';
-      } else if (amountPaid >= invoice.total) {
-        paymentStatus = 'fully_paid';
-      } else {
-        paymentStatus = 'partially_paid';
-      }
-
-      map.set(invoice.id, {
-        amountPaid,
-        balanceDue,
-        paymentCount: linkedReceipts.length,
-        paymentStatus,
-        percentPaid,
-      });
-    }
-
-    return map;
-  }, [documents]);
 
   const handleDownloadPDF = async (doc: Document) => {
     setDownloadingId(doc.id);
@@ -198,54 +149,6 @@ export function DocumentList({ documents, onEdit, onDelete, isLoading = false }:
         <div className="mt-2 text-xs text-gray-600">
           Due: {formatDate(doc.dueDate)}
         </div>
-      )}
-
-      {/* Invoice Payment Progress */}
-      {doc.documentType === 'invoice' && invoicePaymentMap.get(doc.id) && (
-        (() => {
-          const paymentInfo = invoicePaymentMap.get(doc.id)!;
-          return (
-            <div className="mt-3 pt-3 border-t">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-1.5">
-                  <CreditCard className="w-3.5 h-3.5 text-gray-500" />
-                  <span className="text-xs text-gray-600">Payment Progress</span>
-                </div>
-                <Badge className={
-                  paymentInfo.paymentStatus === 'fully_paid' ? 'bg-green-100 text-green-800' :
-                  paymentInfo.paymentStatus === 'partially_paid' ? 'bg-amber-100 text-amber-800' :
-                  'bg-gray-100 text-gray-600'
-                }>
-                  {paymentInfo.paymentStatus === 'fully_paid' ? 'PAID' :
-                   paymentInfo.paymentStatus === 'partially_paid' ? 'PARTIAL' : 'UNPAID'}
-                </Badge>
-              </div>
-              {paymentInfo.paymentCount > 0 && (
-                <>
-                  <div className="w-full bg-gray-200 rounded-full h-1.5 mb-2">
-                    <div
-                      className={`h-1.5 rounded-full ${
-                        paymentInfo.paymentStatus === 'fully_paid' ? 'bg-green-500' : 'bg-amber-500'
-                      }`}
-                      style={{ width: `${Math.min(paymentInfo.percentPaid, 100)}%` }}
-                    />
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-green-600">
-                      Paid: {formatAmount(paymentInfo.amountPaid, doc.currency)}
-                    </span>
-                    <span className={paymentInfo.balanceDue > 0 ? 'text-gray-600' : 'text-green-600'}>
-                      Due: {formatAmount(Math.max(paymentInfo.balanceDue, 0), doc.currency)}
-                    </span>
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1">
-                    {paymentInfo.paymentCount} receipt{paymentInfo.paymentCount > 1 ? 's' : ''} ({paymentInfo.percentPaid}%)
-                  </div>
-                </>
-              )}
-            </div>
-          );
-        })()
       )}
 
       {doc.documentType === 'receipt' && doc.linkedInvoiceNumber && (
@@ -393,31 +296,6 @@ export function DocumentList({ documents, onEdit, onDelete, isLoading = false }:
   const receipts = filterByType('receipt');
   const vouchers = filterByType('payment_voucher');
   const statements = filterByType('statement_of_payment');
-
-  // Show skeleton loading state
-  if (isLoading) {
-    return (
-      <Card>
-        <CardHeader>
-          <div className="h-6 w-36 bg-gray-200 animate-pulse rounded-md" />
-        </CardHeader>
-        <CardContent>
-          {/* Skeleton tabs */}
-          <div className="mb-4">
-            <div className="inline-flex h-10 items-center justify-center rounded-md bg-gray-100 p-1 w-full">
-              <div className="h-8 flex-1 bg-gray-200 animate-pulse rounded-sm" />
-              <div className="h-8 flex-1 bg-gray-200 animate-pulse rounded-sm mx-1" />
-              <div className="h-8 flex-1 bg-gray-200 animate-pulse rounded-sm mx-1" />
-              <div className="h-8 flex-1 bg-gray-200 animate-pulse rounded-sm mx-1" />
-              <div className="h-8 flex-1 bg-gray-200 animate-pulse rounded-sm" />
-            </div>
-          </div>
-          {/* Skeleton document list */}
-          <SkeletonDocumentList count={5} />
-        </CardContent>
-      </Card>
-    );
-  }
 
   return (
     <Card>

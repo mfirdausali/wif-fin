@@ -11,16 +11,14 @@ import { Account, AccountType } from '../types/account';
 import { Currency, Country } from '../types/document';
 import { Building2, Wallet, Plus, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert';
-import { SkeletonAccountList } from './ui/skeleton';
 
 interface AccountManagementProps {
   accounts: Account[];
   onAddAccount?: (account: Account) => void;
   onAccountClick?: (account: Account) => void;
-  isLoading?: boolean;
 }
 
-export function AccountManagement({ accounts, onAddAccount, onAccountClick, isLoading = false }: AccountManagementProps) {
+export function AccountManagement({ accounts, onAddAccount, onAccountClick }: AccountManagementProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
@@ -266,35 +264,6 @@ export function AccountManagement({ accounts, onAddAccount, onAccountClick, isLo
         )}
       </div>
 
-      {/* Show skeleton loading state */}
-      {isLoading ? (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <div className="h-5 w-5 bg-gray-200 animate-pulse rounded" />
-                <div className="h-5 w-36 bg-gray-200 animate-pulse rounded" />
-              </div>
-              <div className="h-4 w-16 bg-gray-200 animate-pulse rounded mt-1" />
-            </CardHeader>
-            <CardContent>
-              <SkeletonAccountList count={2} />
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <div className="h-5 w-5 bg-gray-200 animate-pulse rounded" />
-                <div className="h-5 w-36 bg-gray-200 animate-pulse rounded" />
-              </div>
-              <div className="h-4 w-16 bg-gray-200 animate-pulse rounded mt-1" />
-            </CardHeader>
-            <CardContent>
-              <SkeletonAccountList count={2} />
-            </CardContent>
-          </Card>
-        </div>
-      ) : (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Main Bank Accounts */}
         <Card>
@@ -392,7 +361,6 @@ export function AccountManagement({ accounts, onAddAccount, onAccountClick, isLo
           </CardContent>
         </Card>
       </div>
-      )}
     </div>
   );
 }

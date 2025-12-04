@@ -22,9 +22,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../ui/select';
-import { Download, FileText, Search, Calendar, User, Activity } from 'lucide-react';
+import { Download, FileText, Search, Calendar, User, Activity, Loader2 } from 'lucide-react';
 import { ActivityLog as ActivityLogType, ActivityType, PublicUser } from '../../types/auth';
-import { Skeleton } from '../ui/skeleton';
 
 interface ActivityLogProps {
   activities: ActivityLogType[];
@@ -108,100 +107,74 @@ export function ActivityLog({ activities, users, onExport, isLoading = false }: 
   // Get unique activity types
   const activityTypes = Array.from(new Set(activities.map((a) => a.type))).sort();
 
-  // Skeleton stats card component
-  const SkeletonStatsCard = () => (
-    <Card>
-      <CardContent className="pt-6">
-        <div className="flex items-center justify-between">
-          <div className="space-y-2">
-            <Skeleton className="h-4 w-24" />
-            <Skeleton className="h-8 w-16" />
-          </div>
-          <Skeleton className="h-8 w-8 rounded" />
-        </div>
-      </CardContent>
-    </Card>
-  );
-
   return (
     <div className="space-y-6">
       {/* Statistics */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {isLoading ? (
-          <>
-            <SkeletonStatsCard />
-            <SkeletonStatsCard />
-            <SkeletonStatsCard />
-            <SkeletonStatsCard />
-          </>
-        ) : (
-          <>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-600">Total Activities</p>
-                    <p className="text-2xl font-bold">{filteredActivities.length}</p>
-                  </div>
-                  <Activity className="h-8 w-8 text-blue-600" />
-                </div>
-              </CardContent>
-            </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600">Total Activities</p>
+                <p className="text-2xl font-bold">{filteredActivities.length}</p>
+              </div>
+              <Activity className="h-8 w-8 text-blue-600" />
+            </div>
+          </CardContent>
+        </Card>
 
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-600">Users Active</p>
-                    <p className="text-2xl font-bold">
-                      {new Set(filteredActivities.map((a) => a.userId)).size}
-                    </p>
-                  </div>
-                  <User className="h-8 w-8 text-green-600" />
-                </div>
-              </CardContent>
-            </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600">Users Active</p>
+                <p className="text-2xl font-bold">
+                  {new Set(filteredActivities.map((a) => a.userId)).size}
+                </p>
+              </div>
+              <User className="h-8 w-8 text-green-600" />
+            </div>
+          </CardContent>
+        </Card>
 
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-600">Today</p>
-                    <p className="text-2xl font-bold">
-                      {
-                        filteredActivities.filter((a) => {
-                          const activityDate = new Date(a.timestamp).toDateString();
-                          const today = new Date().toDateString();
-                          return activityDate === today;
-                        }).length
-                      }
-                    </p>
-                  </div>
-                  <Calendar className="h-8 w-8 text-orange-600" />
-                </div>
-              </CardContent>
-            </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600">Today</p>
+                <p className="text-2xl font-bold">
+                  {
+                    filteredActivities.filter((a) => {
+                      const activityDate = new Date(a.timestamp).toDateString();
+                      const today = new Date().toDateString();
+                      return activityDate === today;
+                    }).length
+                  }
+                </p>
+              </div>
+              <Calendar className="h-8 w-8 text-orange-600" />
+            </div>
+          </CardContent>
+        </Card>
 
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-600">Export</p>
-                    <div className="flex gap-2 mt-2">
-                      <Button size="sm" variant="outline" onClick={() => onExport('json')}>
-                        JSON
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => onExport('csv')}>
-                        CSV
-                      </Button>
-                    </div>
-                  </div>
-                  <Download className="h-8 w-8 text-purple-600" />
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600">Export</p>
+                <div className="flex gap-2 mt-2">
+                  <Button size="sm" variant="outline" onClick={() => onExport('json')}>
+                    JSON
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => onExport('csv')}>
+                    CSV
+                  </Button>
                 </div>
-              </CardContent>
-            </Card>
-          </>
-        )}
+              </div>
+              <Download className="h-8 w-8 text-purple-600" />
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Activity Log */}
@@ -286,26 +259,9 @@ export function ActivityLog({ activities, users, onExport, isLoading = false }: 
           <ScrollArea className="h-[600px]">
             <div className="space-y-3">
               {isLoading ? (
-                <div className="space-y-3">
-                  {/* Skeleton activity log items */}
-                  {Array.from({ length: 6 }).map((_, i) => (
-                    <div key={i} className="border rounded-lg p-4">
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-start gap-3 flex-1">
-                          <Skeleton className="h-8 w-8 rounded" />
-                          <div className="flex-1 space-y-2">
-                            <div className="flex items-center gap-2">
-                              <Skeleton className="h-5 w-24 rounded-full" />
-                              <Skeleton className="h-4 w-20" />
-                            </div>
-                            <Skeleton className="h-4 w-full max-w-md" />
-                            <Skeleton className="h-3 w-32" />
-                          </div>
-                        </div>
-                        <Skeleton className="h-4 w-28" />
-                      </div>
-                    </div>
-                  ))}
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <Loader2 className="w-12 h-12 text-gray-400 mb-3 animate-spin" />
+                  <p className="text-gray-500">Loading activity logs...</p>
                 </div>
               ) : filteredActivities.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center">

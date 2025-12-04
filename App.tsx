@@ -639,7 +639,6 @@ function AppContent() {
                 documents={documents}
                 onEdit={user && hasPermission(user, 'documents:edit') ? handleEditDocument : undefined}
                 onDelete={user && hasPermission(user, 'documents:delete') ? handleDeleteDocument : undefined}
-                isLoading={!dataLoaded}
               />
             </TabsContent>
             
@@ -666,7 +665,6 @@ function AppContent() {
                     accounts={accounts}
                     onAddAccount={user && hasPermission(user, 'accounts:create') ? handleAddAccount : undefined}
                     onAccountClick={(account) => setSelectedAccount(account)}
-                    isLoading={!dataLoaded}
                   />
                 </>
               )}
