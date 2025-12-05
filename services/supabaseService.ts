@@ -234,9 +234,21 @@ export async function deleteAccount(accountId: string): Promise<void> {
 
 /**
  * Generate document number
+ *
+ * For INVOICES: Uses format WIF + YY + NNNN (e.g., WIF250187)
+ *   - Continues from last invoice number in database
+ *   - Resets to 0001 when year changes (e.g., WIF260001 for 2026)
+ *
+ * For OTHER documents: Uses database RPC function (WIF-PREFIX-YYYYMMDD-XXX)
  */
 export async function generateDocumentNumber(companyId: string, documentType: DocumentType): Promise<string> {
   try {
+    // Special handling for invoices - use WIF + YY + NNNN format
+    if (documentType === 'invoice') {
+      return await generateInvoiceNumber();
+    }
+
+    // For other document types, use the database RPC function
     const { data, error } = await supabase
       .rpc('generate_document_number', {
         p_company_id: companyId,
@@ -248,6 +260,58 @@ export async function generateDocumentNumber(companyId: string, documentType: Do
   } catch (error) {
     console.error('Error generating document number:', error);
     throw new Error(`Failed to generate document number: ${handleSupabaseError(error)}`);
+  }
+}
+
+/**
+ * Generate invoice number in format: WIF + YY + NNNN
+ * Example: WIF250187, WIF250188, ... WIF260001 (for 2026)
+ *
+ * Queries the database for the last invoice number and increments it.
+ * Handles year rollover automatically.
+ */
+async function generateInvoiceNumber(): Promise<string> {
+  const currentYear = new Date().getFullYear();
+  const yearPrefix = String(currentYear).slice(-2); // "25" for 2025, "26" for 2026
+
+  try {
+    // Query for the highest invoice number with the current year prefix
+    const { data: currentYearData, error: currentYearError } = await supabase
+      .from('documents')
+      .select('document_number')
+      .eq('document_type', 'invoice')
+      .like('document_number', `WIF${yearPrefix}%`)
+      .is('deleted_at', null)
+      .order('document_number', { ascending: false })
+      .limit(1);
+
+    if (currentYearError) throw currentYearError;
+
+    let nextSequence = 1;
+
+    if (currentYearData && currentYearData.length > 0) {
+      // Extract sequence number from last invoice (e.g., "WIF250186" -> 186)
+      const lastNumber = currentYearData[0].document_number;
+      const match = lastNumber.match(/^WIF\d{2}(\d+)$/);
+      if (match) {
+        nextSequence = parseInt(match[1], 10) + 1;
+      }
+    } else {
+      // No invoices for current year - check if we should continue from previous year's last number
+      // or start fresh at 0001
+      // For year rollover: start at 0001
+      nextSequence = 1;
+    }
+
+    // Format: WIF + YY + NNNN (4 digits, padded with zeros)
+    const formattedNumber = `WIF${yearPrefix}${String(nextSequence).padStart(4, '0')}`;
+
+    return formattedNumber;
+  } catch (error) {
+    console.error('Error generating invoice number:', error);
+    // Fallback: generate with timestamp to avoid duplicates
+    const fallbackSeq = Date.now().toString().slice(-4);
+    return `WIF${yearPrefix}${fallbackSeq}`;
   }
 }
 
