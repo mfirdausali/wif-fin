@@ -374,7 +374,8 @@ export async function getDocuments(companyId: string, userRole?: string): Promis
 
       switch (documentType) {
         case 'invoice': {
-          const invoiceData = doc.invoices?.[0] || {
+          // Supabase returns one-to-one relationships as objects, not arrays
+          const invoiceData = doc.invoices || {
             customer_name: 'Unknown',
             invoice_date: doc.document_date,
             due_date: doc.document_date,
@@ -382,7 +383,7 @@ export async function getDocuments(companyId: string, userRole?: string): Promis
           return dbDocumentToInvoice(doc, invoiceData, items);
         }
         case 'receipt': {
-          const receiptData = doc.receipts?.[0] || {
+          const receiptData = doc.receipts || {
             payer_name: 'Unknown',
             receipt_date: doc.document_date,
             payment_method: 'Unknown',
@@ -391,7 +392,7 @@ export async function getDocuments(companyId: string, userRole?: string): Promis
           return dbDocumentToReceipt(doc, receiptData, undefined);
         }
         case 'payment_voucher': {
-          const voucherData = doc.payment_vouchers?.[0] || {
+          const voucherData = doc.payment_vouchers || {
             payee_name: 'Unknown',
             voucher_date: doc.document_date,
             requested_by: 'Unknown',
@@ -399,7 +400,7 @@ export async function getDocuments(companyId: string, userRole?: string): Promis
           return dbDocumentToPaymentVoucher(doc, voucherData, items);
         }
         case 'statement_of_payment': {
-          const statementData = doc.statements_of_payment?.[0] || {
+          const statementData = doc.statements_of_payment || {
             linked_voucher_id: '',
             payment_date: doc.document_date,
             payment_method: 'Unknown',
