@@ -237,21 +237,31 @@ function generatePaymentVoucherHTML(pv, companyInfo = {}) {
     <table class="items-table">
         <thead>
             <tr>
-                <th style="width: 50%;">Description</th>
-                <th class="text-right" style="width: 15%;">Qty</th>
-                <th class="text-right" style="width: 17.5%;">Unit Price</th>
-                <th class="text-right" style="width: 17.5%;">Amount</th>
+                <th style="width: 40%;">Description</th>
+                <th class="text-right" style="width: 12%;">Qty</th>
+                <th class="text-right" style="width: 16%;">Unit Price</th>
+                <th class="text-right" style="width: 12%;">Discount</th>
+                <th class="text-right" style="width: 16%;">Amount</th>
             </tr>
         </thead>
         <tbody>
-            ${pv.items.map(item => `
+            ${pv.items.map(item => {
+              const hasDiscount = item.discountType && item.discountValue > 0;
+              const discountDisplay = hasDiscount
+                ? (item.discountType === 'percentage'
+                    ? `${item.discountValue}%`
+                    : `${pv.currency} ${formatNumber(item.discountValue)}/ea`)
+                : '-';
+              return `
             <tr>
                 <td>${item.description}</td>
                 <td class="text-right">${item.quantity}</td>
                 <td class="text-right">${pv.currency} ${formatNumber(item.unitPrice)}</td>
+                <td class="text-right">${discountDisplay}</td>
                 <td class="text-right">${pv.currency} ${formatNumber(item.amount)}</td>
             </tr>
-            `).join('')}
+              `;
+            }).join('')}
         </tbody>
     </table>
 
@@ -260,6 +270,16 @@ function generatePaymentVoucherHTML(pv, companyInfo = {}) {
             <td>Subtotal:</td>
             <td class="text-right">${pv.currency} ${formatNumber(pv.subtotal)}</td>
         </tr>
+        ${pv.documentDiscountAmount > 0 ? `
+        <tr>
+            <td>Discount${pv.documentDiscountType === 'percentage' ? ` (${pv.documentDiscountValue}%)` : ''}:</td>
+            <td class="text-right" style="color: #dc2626;">-${pv.currency} ${formatNumber(pv.documentDiscountAmount)}</td>
+        </tr>
+        <tr>
+            <td>Discounted Subtotal:</td>
+            <td class="text-right">${pv.currency} ${formatNumber(pv.subtotal - pv.documentDiscountAmount)}</td>
+        </tr>
+        ` : ''}
         ${pv.taxAmount ? `
         <tr>
             <td>Tax (${pv.taxRate}%):</td>

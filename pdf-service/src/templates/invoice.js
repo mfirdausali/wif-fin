@@ -328,23 +328,34 @@ function generateInvoiceHTML(invoice, companyInfo = {}) {
             <thead>
                 <tr>
                     <th class="description-col">Description</th>
-                    <th style="width: 15%">Qty</th>
-                    <th style="width: 17.5%">Unit Price</th>
-                    <th style="width: 17.5%">Amount</th>
+                    <th style="width: 10%">Qty</th>
+                    <th style="width: 15%">Unit Price</th>
+                    <th style="width: 12%">Discount</th>
+                    <th style="width: 15%">Amount</th>
                 </tr>
             </thead>
             <tbody>
-                ${lineItems.map(item => `
+                ${lineItems.map(item => {
+                  const hasDiscount = item.discountType && item.discountValue > 0;
+                  const discountDisplay = hasDiscount
+                    ? (item.discountType === 'percentage'
+                        ? `${item.discountValue}%`
+                        : `${invoice.currency} ${formatNumber(item.discountValue)}/ea`)
+                    : '-';
+                  return `
                 <tr>
                     <td class="description-col">${item.description}</td>
                     <td>${item.quantity}</td>
                     <td>${invoice.currency} ${formatNumber(item.unitPrice)}</td>
+                    <td>${discountDisplay}</td>
                     <td>${invoice.currency} ${formatNumber(item.amount)}</td>
                 </tr>
-                `).join('')}
+                `;
+                }).join('')}
                 ${Array.from({ length: emptyRows }).map(() => `
                 <tr style="height: 24pt">
                     <td class="description-col">&nbsp;</td>
+                    <td>&nbsp;</td>
                     <td>&nbsp;</td>
                     <td>&nbsp;</td>
                     <td>&nbsp;</td>
@@ -359,6 +370,16 @@ function generateInvoiceHTML(invoice, companyInfo = {}) {
                     <td>Subtotal</td>
                     <td>${invoice.currency} ${formatNumber(subtotal)}</td>
                 </tr>
+                ${invoice.documentDiscountAmount > 0 ? `
+                <tr>
+                    <td>Discount${invoice.documentDiscountType === 'percentage' ? ` (${invoice.documentDiscountValue}%)` : ''}</td>
+                    <td style="color: #dc2626;">-${invoice.currency} ${formatNumber(invoice.documentDiscountAmount)}</td>
+                </tr>
+                <tr>
+                    <td>Discounted Subtotal</td>
+                    <td>${invoice.currency} ${formatNumber(subtotal - invoice.documentDiscountAmount)}</td>
+                </tr>
+                ` : ''}
                 <tr>
                     <td>Tax (${invoice.taxRate || 0}%)</td>
                     <td>${invoice.currency} ${formatNumber(taxAmount)}</td>

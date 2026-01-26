@@ -6,12 +6,17 @@ export type DocumentType = 'invoice' | 'receipt' | 'payment_voucher' | 'statemen
 
 export type DocumentStatus = 'draft' | 'issued' | 'paid' | 'completed' | 'cancelled';
 
+export type DiscountType = 'fixed' | 'percentage';
+
 export interface LineItem {
   id: string;
   description: string;
   quantity: number;
   unitPrice: number;
-  amount: number;
+  discountType?: DiscountType;
+  discountValue?: number;
+  discountAmount?: number;  // Calculated: discount applied to this line
+  amount: number;  // Final amount: (qty × unitPrice) - discountAmount
 }
 
 /**
@@ -55,6 +60,10 @@ export interface Invoice extends BaseDocument {
   dueDate: string;
   items: LineItem[];
   subtotal: number;
+  // Document-level discount (applied after subtotal, before tax)
+  documentDiscountType?: DiscountType;
+  documentDiscountValue?: number;
+  documentDiscountAmount?: number;
   taxRate?: number;
   taxAmount?: number;
   total: number;
@@ -85,6 +94,10 @@ export interface PaymentVoucher extends BaseDocument {
   voucherDate: string;
   items: LineItem[];
   subtotal: number;
+  // Document-level discount (applied after subtotal, before tax)
+  documentDiscountType?: DiscountType;
+  documentDiscountValue?: number;
+  documentDiscountAmount?: number;
   taxRate?: number;
   taxAmount?: number;
   total: number;

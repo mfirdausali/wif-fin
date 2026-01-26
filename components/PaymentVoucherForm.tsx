@@ -7,7 +7,7 @@ import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Textarea } from './ui/textarea';
 import { AlertCircle, Plus, Trash2, Upload, Loader2 } from 'lucide-react';
-import { PaymentVoucher, Currency, Country, LineItem } from '../types/document';
+import { PaymentVoucher, Currency, Country, LineItem, DiscountType } from '../types/document';
 import { Account } from '../types/account';
 import { Alert, AlertDescription } from './ui/alert';
 import { Separator } from './ui/separator';
@@ -87,6 +87,9 @@ export function PaymentVoucherForm({ accounts, onSubmit, onCancel, initialData }
     accountId: initialData?.accountId || '',
     taxRate: initialData?.taxRate?.toString() || '',
     notes: initialData?.notes || '',
+    // Document-level discount
+    documentDiscountType: initialData?.documentDiscountType || ('' as DiscountType | ''),
+    documentDiscountValue: initialData?.documentDiscountValue?.toString() || '',
   });
 
   // REMOVED: Document number generation moved to service layer at submission time
@@ -108,12 +111,27 @@ export function PaymentVoucherForm({ accounts, onSubmit, onCancel, initialData }
     }
   };
 
+  // Calculate line item discount amount
+  const calculateLineDiscount = (item: LineItem): number => {
+    if (!item.discountType || !item.discountValue) return 0;
+    const grossAmount = item.quantity * item.unitPrice;
+    if (item.discountType === 'percentage') {
+      return grossAmount * (item.discountValue / 100);
+    } else {
+      // Fixed discount per unit × quantity
+      return item.discountValue * item.quantity;
+    }
+  };
+
   const updateItem = (id: string, field: keyof LineItem, value: any) => {
     setItems(items.map(item => {
       if (item.id === id) {
         const updated = { ...item, [field]: value };
-        if (field === 'quantity' || field === 'unitPrice') {
-          updated.amount = updated.quantity * updated.unitPrice;
+        // Recalculate discount and amount when relevant fields change
+        if (field === 'quantity' || field === 'unitPrice' || field === 'discountType' || field === 'discountValue') {
+          const grossAmount = updated.quantity * updated.unitPrice;
+          updated.discountAmount = calculateLineDiscount(updated);
+          updated.amount = grossAmount - (updated.discountAmount || 0);
         }
         return updated;
       }
@@ -122,11 +140,29 @@ export function PaymentVoucherForm({ accounts, onSubmit, onCancel, initialData }
   };
 
   const calculateTotals = () => {
+    // Subtotal is sum of line item amounts (already discounted at line level)
     const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
+
+    // Calculate document-level discount
+    let documentDiscountAmount = 0;
+    const docDiscountType = formData.documentDiscountType as DiscountType | '';
+    const docDiscountValue = parseFloat(formData.documentDiscountValue) || 0;
+
+    if (docDiscountType === 'percentage' && docDiscountValue > 0) {
+      documentDiscountAmount = subtotal * (docDiscountValue / 100);
+    } else if (docDiscountType === 'fixed' && docDiscountValue > 0) {
+      documentDiscountAmount = docDiscountValue;
+    }
+
+    // Discounted subtotal after document discount
+    const discountedSubtotal = subtotal - documentDiscountAmount;
+
+    // Tax applied on discounted subtotal
     const taxRate = parseFloat(formData.taxRate) || 0;
-    const taxAmount = subtotal * (taxRate / 100);
-    const total = subtotal + taxAmount;
-    return { subtotal, taxAmount, total };
+    const taxAmount = discountedSubtotal * (taxRate / 100);
+    const total = discountedSubtotal + taxAmount;
+
+    return { subtotal, documentDiscountAmount, discountedSubtotal, taxAmount, total };
   };
 
   // Handle supporting document file upload
@@ -304,7 +340,7 @@ export function PaymentVoucherForm({ accounts, onSubmit, onCancel, initialData }
       }
     }
 
-    const { subtotal, taxAmount, total } = calculateTotals();
+    const { subtotal, documentDiscountAmount, taxAmount, total } = calculateTotals();
 
     const selectedAccount = accounts.find(acc => acc.id === formData.accountId);
 
@@ -351,6 +387,10 @@ export function PaymentVoucherForm({ accounts, onSubmit, onCancel, initialData }
       voucherDate: formData.voucherDate,
       items: items,
       subtotal: subtotal,
+      // Document-level discount
+      documentDiscountType: formData.documentDiscountType ? formData.documentDiscountType as DiscountType : undefined,
+      documentDiscountValue: parseFloat(formData.documentDiscountValue) || undefined,
+      documentDiscountAmount: documentDiscountAmount > 0 ? documentDiscountAmount : undefined,
       taxRate: parseFloat(formData.taxRate) || undefined,
       taxAmount: taxAmount > 0 ? taxAmount : undefined,
       total: total,
@@ -474,20 +514,38 @@ export function PaymentVoucherForm({ accounts, onSubmit, onCancel, initialData }
                 Add Item
               </Button>
             </div>
-            {items.map((item, _index) => (
-              <div key={item.id} className="p-3 bg-gray-50 rounded-lg space-y-3">
-                {/* Mobile: Stack vertically, Desktop: Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-2 md:items-end">
-                  <div className="md:col-span-5 space-y-2">
-                    <Label>Description</Label>
-                    <Input
-                      value={item.description}
-                      onChange={(e) => updateItem(item.id, 'description', e.target.value)}
-                      placeholder="Item description"
-                    />
+            {items.map((item, _index) => {
+              const grossAmount = item.quantity * item.unitPrice;
+              const hasDiscount = item.discountType && item.discountValue && item.discountValue > 0;
+
+              return (
+                <div key={item.id} className="p-3 bg-gray-50 rounded-lg space-y-3">
+                  {/* First row: Description */}
+                  <div className="grid grid-cols-12 gap-2 items-end">
+                    <div className="col-span-11 space-y-2">
+                      <Label>Description</Label>
+                      <Input
+                        value={item.description}
+                        onChange={(e) => updateItem(item.id, 'description', e.target.value)}
+                        placeholder="Item description"
+                      />
+                    </div>
+                    <div className="col-span-1 flex justify-center">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeItem(item.id)}
+                        disabled={items.length === 1}
+                        className="h-9 w-9"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 md:contents">
-                    <div className="md:col-span-2 space-y-2">
+                  {/* Second row: Qty, Unit Price, Discount, Amount */}
+                  <div className="grid grid-cols-12 gap-2 items-end">
+                    <div className="col-span-2 space-y-2">
                       <Label>Qty</Label>
                       <Input
                         type="number"
@@ -496,7 +554,7 @@ export function PaymentVoucherForm({ accounts, onSubmit, onCancel, initialData }
                         onChange={(e) => updateItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
                       />
                     </div>
-                    <div className="md:col-span-2 space-y-2">
+                    <div className="col-span-2 space-y-2">
                       <Label>Unit Price</Label>
                       <Input
                         type="number"
@@ -505,26 +563,68 @@ export function PaymentVoucherForm({ accounts, onSubmit, onCancel, initialData }
                         onChange={(e) => updateItem(item.id, 'unitPrice', parseFloat(e.target.value) || 0)}
                       />
                     </div>
-                    <div className="md:col-span-2 space-y-2">
+                    {/* Discount Type */}
+                    <div className="col-span-2 space-y-2">
+                      <Label>Discount</Label>
+                      <Select
+                        value={item.discountType || ''}
+                        onValueChange={(value) => {
+                          if (value === 'none') {
+                            updateItem(item.id, 'discountType', undefined);
+                            updateItem(item.id, 'discountValue', undefined);
+                          } else {
+                            updateItem(item.id, 'discountType', value as DiscountType);
+                          }
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="None" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">None</SelectItem>
+                          <SelectItem value="fixed">Fixed</SelectItem>
+                          <SelectItem value="percentage">%</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {/* Discount Value */}
+                    <div className="col-span-2 space-y-2">
+                      <Label>{item.discountType === 'percentage' ? 'Disc %' : 'Disc Amt'}</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={item.discountValue || ''}
+                        placeholder={item.discountType ? '0' : '-'}
+                        disabled={!item.discountType}
+                        onChange={(e) => updateItem(item.id, 'discountValue', parseFloat(e.target.value) || 0)}
+                      />
+                    </div>
+                    {/* Amount */}
+                    <div className="col-span-4 space-y-2">
                       <Label>Amount</Label>
-                      <Input value={item.amount.toFixed(2)} disabled />
+                      {hasDiscount && item.quantity > 1 ? (
+                        <div className="text-xs bg-white border rounded-md p-2 space-y-1">
+                          <div className="text-gray-500">
+                            Gross: {formData.currency} {grossAmount.toFixed(2)} ({item.quantity} × {item.unitPrice.toFixed(2)})
+                          </div>
+                          <div className="text-red-600">
+                            Disc: -{formData.currency} {(item.discountAmount || 0).toFixed(2)}
+                            {item.discountType === 'fixed' && ` (${item.quantity} × ${item.discountValue})`}
+                            {item.discountType === 'percentage' && ` (${item.discountValue}%)`}
+                          </div>
+                          <div className="font-semibold border-t pt-1">
+                            Net: {formData.currency} {item.amount.toFixed(2)}
+                          </div>
+                        </div>
+                      ) : (
+                        <Input value={item.amount.toFixed(2)} disabled />
+                      )}
                     </div>
                   </div>
-                  <div className="md:col-span-1 flex justify-end md:justify-center">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeItem(item.id)}
-                      disabled={items.length === 1}
-                      className="h-9 w-9"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <Separator />
@@ -583,23 +683,79 @@ export function PaymentVoucherForm({ accounts, onSubmit, onCancel, initialData }
           </div>
 
           {/* Totals Summary */}
-          <div className="p-4 bg-gray-50 rounded-lg space-y-2">
-            <div className="flex justify-between">
-              <span>Subtotal:</span>
-              <span className="font-semibold">{formData.currency} {calculateTotals().subtotal.toFixed(2)}</span>
-            </div>
-            {calculateTotals().taxAmount > 0 && (
-              <div className="flex justify-between">
-                <span>Tax ({formData.taxRate}%):</span>
-                <span className="font-semibold">{formData.currency} {calculateTotals().taxAmount.toFixed(2)}</span>
+          {(() => {
+            const totals = calculateTotals();
+            const hasDocDiscount = formData.documentDiscountType && parseFloat(formData.documentDiscountValue) > 0;
+
+            return (
+              <div className="p-4 bg-gray-50 rounded-lg space-y-3">
+                <div className="flex justify-between">
+                  <span>Subtotal:</span>
+                  <span className="font-semibold">{formData.currency} {totals.subtotal.toFixed(2)}</span>
+                </div>
+
+                {/* Document-level Discount */}
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="flex-shrink-0 w-20">Discount:</span>
+                  <Select
+                    value={formData.documentDiscountType || 'none'}
+                    onValueChange={(value) => {
+                      if (value === 'none') {
+                        setFormData({ ...formData, documentDiscountType: '' as DiscountType | '', documentDiscountValue: '' });
+                      } else {
+                        setFormData({ ...formData, documentDiscountType: value as DiscountType });
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="w-24">
+                      <SelectValue placeholder="None" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="fixed">Fixed</SelectItem>
+                      <SelectItem value="percentage">%</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {formData.documentDiscountType && (
+                    <Input
+                      type="number"
+                      className="w-24"
+                      step="0.01"
+                      min="0"
+                      value={formData.documentDiscountValue}
+                      onChange={(e) => setFormData({ ...formData, documentDiscountValue: e.target.value })}
+                      placeholder="0"
+                    />
+                  )}
+                  {hasDocDiscount && (
+                    <span className="text-red-600 ml-auto">
+                      -{formData.currency} {totals.documentDiscountAmount.toFixed(2)}
+                    </span>
+                  )}
+                </div>
+
+                {/* Discounted Subtotal (only show if discount applied) */}
+                {hasDocDiscount && (
+                  <div className="flex justify-between text-sm text-muted-foreground">
+                    <span>Discounted Subtotal:</span>
+                    <span>{formData.currency} {totals.discountedSubtotal.toFixed(2)}</span>
+                  </div>
+                )}
+
+                {totals.taxAmount > 0 && (
+                  <div className="flex justify-between">
+                    <span>Tax ({formData.taxRate}%):</span>
+                    <span className="font-semibold">{formData.currency} {totals.taxAmount.toFixed(2)}</span>
+                  </div>
+                )}
+                <Separator />
+                <div className="flex justify-between text-lg">
+                  <span className="font-bold">Total:</span>
+                  <span className="font-bold">{formData.currency} {totals.total.toFixed(2)}</span>
+                </div>
               </div>
-            )}
-            <Separator />
-            <div className="flex justify-between text-lg">
-              <span className="font-bold">Total:</span>
-              <span className="font-bold">{formData.currency} {calculateTotals().total.toFixed(2)}</span>
-            </div>
-          </div>
+            );
+          })()}
 
           {/* Approval Details */}
           <div className="space-y-4 p-4 bg-gray-50 rounded-lg">
