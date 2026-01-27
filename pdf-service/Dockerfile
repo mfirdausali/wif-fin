@@ -1,9 +1,10 @@
 # Use Node.js 20 with Chrome for Puppeteer
 FROM node:20-slim
 
-# Install Chrome dependencies
+# Install Chrome dependencies and fonts
 RUN apt-get update && apt-get install -y \
     chromium \
+    fonts-liberation \
     fonts-ipafont-gothic fonts-wqy-zenhei fonts-thai-tlwg fonts-kacst fonts-freefont-ttf \
     libxss1 \
     --no-install-recommends \

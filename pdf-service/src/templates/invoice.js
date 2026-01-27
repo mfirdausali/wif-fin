@@ -38,7 +38,7 @@ function generateInvoiceHTML(invoice, companyInfo = {}) {
         }
 
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
             line-height: 1.4;
             color: #000000;
             background-color: white;
@@ -329,33 +329,48 @@ function generateInvoiceHTML(invoice, companyInfo = {}) {
                 <tr>
                     <th class="description-col">Description</th>
                     <th style="width: 10%">Qty</th>
-                    <th style="width: 15%">Unit Price</th>
-                    <th style="width: 12%">Discount</th>
-                    <th style="width: 15%">Amount</th>
+                    <th style="width: 18%">Unit Price</th>
+                    <th style="width: 18%">Amount</th>
                 </tr>
             </thead>
             <tbody>
                 ${lineItems.map(item => {
                   const hasDiscount = item.discountType && item.discountValue > 0;
-                  const discountDisplay = hasDiscount
-                    ? (item.discountType === 'percentage'
-                        ? `${item.discountValue}%`
-                        : `${invoice.currency} ${formatNumber(item.discountValue)}/ea`)
-                    : '-';
+                  const grossAmount = item.quantity * item.unitPrice;
+                  const discountAmount = item.discountAmount || 0;
+
+                  // Calculate discount description
+                  let discountDesc = '';
+                  if (hasDiscount) {
+                    if (item.discountType === 'percentage') {
+                      discountDesc = `Discount (${item.discountValue}%)`;
+                    } else {
+                      discountDesc = item.quantity > 1
+                        ? `Discount (${invoice.currency} ${formatNumber(item.discountValue)} × ${item.quantity})`
+                        : `Discount`;
+                    }
+                  }
+
                   return `
                 <tr>
                     <td class="description-col">${item.description}</td>
                     <td>${item.quantity}</td>
                     <td>${invoice.currency} ${formatNumber(item.unitPrice)}</td>
-                    <td>${discountDisplay}</td>
-                    <td>${invoice.currency} ${formatNumber(item.amount)}</td>
+                    <td>${invoice.currency} ${formatNumber(grossAmount)}</td>
                 </tr>
+                ${hasDiscount ? `
+                <tr class="discount-row">
+                    <td class="description-col" style="padding-left: 20pt; color: #dc2626; font-style: italic;">${discountDesc}</td>
+                    <td></td>
+                    <td></td>
+                    <td style="color: #dc2626;">-${invoice.currency} ${formatNumber(discountAmount)}</td>
+                </tr>
+                ` : ''}
                 `;
                 }).join('')}
                 ${Array.from({ length: emptyRows }).map(() => `
                 <tr style="height: 24pt">
                     <td class="description-col">&nbsp;</td>
-                    <td>&nbsp;</td>
                     <td>&nbsp;</td>
                     <td>&nbsp;</td>
                     <td>&nbsp;</td>

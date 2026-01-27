@@ -237,29 +237,45 @@ function generatePaymentVoucherHTML(pv, companyInfo = {}) {
     <table class="items-table">
         <thead>
             <tr>
-                <th style="width: 40%;">Description</th>
+                <th style="width: 46%;">Description</th>
                 <th class="text-right" style="width: 12%;">Qty</th>
-                <th class="text-right" style="width: 16%;">Unit Price</th>
-                <th class="text-right" style="width: 12%;">Discount</th>
-                <th class="text-right" style="width: 16%;">Amount</th>
+                <th class="text-right" style="width: 20%;">Unit Price</th>
+                <th class="text-right" style="width: 20%;">Amount</th>
             </tr>
         </thead>
         <tbody>
             ${pv.items.map(item => {
               const hasDiscount = item.discountType && item.discountValue > 0;
-              const discountDisplay = hasDiscount
-                ? (item.discountType === 'percentage'
-                    ? `${item.discountValue}%`
-                    : `${pv.currency} ${formatNumber(item.discountValue)}/ea`)
-                : '-';
+              const grossAmount = item.quantity * item.unitPrice;
+              const discountAmount = item.discountAmount || 0;
+
+              // Calculate discount description
+              let discountDesc = '';
+              if (hasDiscount) {
+                if (item.discountType === 'percentage') {
+                  discountDesc = `Discount (${item.discountValue}%)`;
+                } else {
+                  discountDesc = item.quantity > 1
+                    ? `Discount (${pv.currency} ${formatNumber(item.discountValue)} × ${item.quantity})`
+                    : `Discount`;
+                }
+              }
+
               return `
             <tr>
                 <td>${item.description}</td>
                 <td class="text-right">${item.quantity}</td>
                 <td class="text-right">${pv.currency} ${formatNumber(item.unitPrice)}</td>
-                <td class="text-right">${discountDisplay}</td>
-                <td class="text-right">${pv.currency} ${formatNumber(item.amount)}</td>
+                <td class="text-right">${pv.currency} ${formatNumber(grossAmount)}</td>
             </tr>
+            ${hasDiscount ? `
+            <tr class="discount-row">
+                <td style="padding-left: 20pt; color: #dc2626; font-style: italic;">${discountDesc}</td>
+                <td></td>
+                <td></td>
+                <td class="text-right" style="color: #dc2626;">-${pv.currency} ${formatNumber(discountAmount)}</td>
+            </tr>
+            ` : ''}
               `;
             }).join('')}
         </tbody>
