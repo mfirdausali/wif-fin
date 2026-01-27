@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { formatDate } from './ui/date-picker';
 import { logDocumentEvent } from '../services/activityLogService';
+import { getDocument } from '../services/supabaseService';
 
 interface DocumentListProps {
   documents: Document[];
@@ -27,6 +28,9 @@ export function DocumentList({ documents, onEdit, onDelete }: DocumentListProps)
   const handleDownloadPDF = async (doc: Document) => {
     setDownloadingId(doc.id);
     try {
+      // Fetch fresh document data to ensure we have the latest (including discounts)
+      const freshDoc = await getDocument(doc.id, doc.documentType);
+
       const companyInfo = await getCompanyInfoAsync();
       const printerInfo = user ? {
         userName: user.fullName,
@@ -34,12 +38,12 @@ export function DocumentList({ documents, onEdit, onDelete }: DocumentListProps)
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
       } : undefined;
 
-      await PdfService.downloadPDF(doc, companyInfo, printerInfo);
+      await PdfService.downloadPDF(freshDoc, companyInfo, printerInfo);
       toast.success('PDF downloaded successfully');
 
       // Log document printed event
       if (user) {
-        logDocumentEvent('document:printed', user, doc, {
+        logDocumentEvent('document:printed', user, freshDoc, {
           printedBy: user.fullName,
           printDate: new Date().toISOString(),
         });
