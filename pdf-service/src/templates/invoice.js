@@ -4,6 +4,25 @@ function generateInvoiceHTML(invoice, companyInfo = {}) {
     return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
+  // Helper function to format dates as DD/MM/YYYY
+  const formatDate = (dateStr) => {
+    const date = new Date(dateStr);
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
+  };
+
+  // Determine display status - show payment status if partially/fully paid
+  const displayStatus = (invoice.paymentStatus === 'partially_paid') ? 'partially paid'
+    : (invoice.paymentStatus === 'fully_paid') ? 'paid'
+    : invoice.status;
+
+  // CSS class for status badge
+  const statusClass = (invoice.paymentStatus === 'partially_paid') ? 'partially-paid'
+    : (invoice.paymentStatus === 'fully_paid') ? 'paid'
+    : invoice.status;
+
   const company = {
     name: companyInfo.name || 'WIF JAPAN SDN BHD',
     address: companyInfo.address || 'Malaysia Office\nKuala Lumpur, Malaysia',
@@ -133,6 +152,11 @@ function generateInvoiceHTML(invoice, companyInfo = {}) {
         .status-issued {
             background: #fef3c7;
             color: #92400e;
+        }
+
+        .status-partially-paid {
+            background: #fed7aa;
+            color: #c2410c;
         }
 
         .amount-section {
@@ -379,9 +403,9 @@ function generateInvoiceHTML(invoice, companyInfo = {}) {
 
             <div class="header-right">
                 <div class="date-info">
-                    <div>Issue Date: ${new Date(invoice.createdAt).toLocaleDateString()}</div>
+                    <div>Issue Date: ${formatDate(invoice.createdAt)}</div>
                     <div>Invoice No.: ${invoice.documentNumber}</div>
-                    <div>Status: <span class="status-badge status-${invoice.status}">${invoice.status}</span></div>
+                    <div>Status: <span class="status-badge status-${statusClass}">${displayStatus.toUpperCase()}</span></div>
                 </div>
             </div>
         </div>
@@ -509,7 +533,7 @@ function generateInvoiceHTML(invoice, companyInfo = {}) {
                 ${invoice.lastPaymentDate ? `
                 <div class="payment-summary-row">
                     <div class="payment-summary-label">Last Payment Date</div>
-                    <div class="payment-summary-value">${new Date(invoice.lastPaymentDate).toLocaleDateString()}</div>
+                    <div class="payment-summary-value">${formatDate(invoice.lastPaymentDate)}</div>
                 </div>
                 ` : ''}
             </div>
