@@ -68,6 +68,12 @@ export interface Invoice extends BaseDocument {
   taxAmount?: number;
   total: number;
   paymentTerms?: string;
+  // Payment tracking (from invoice_payment_summary view)
+  amountPaid?: number;
+  balanceDue?: number;
+  paymentCount?: number;
+  paymentStatus?: 'unpaid' | 'partially_paid' | 'fully_paid';
+  lastPaymentDate?: string;
 }
 
 export interface Receipt extends BaseDocument {

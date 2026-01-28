@@ -992,7 +992,21 @@ async function getInvoiceData(doc: DbDocument, items: DbLineItem[]): Promise<Inv
     due_date: doc.document_date,
   };
 
-  return dbDocumentToInvoice(doc, invoiceData, items);
+  // Fetch payment summary from the invoice_payment_summary view
+  let paymentSummary = null;
+  const { data: summaryData, error: summaryError } = await supabase
+    .from('invoice_payment_summary')
+    .select('amount_paid, balance_due, payment_count, payment_status, last_payment_date')
+    .eq('document_id', doc.id)
+    .maybeSingle();
+
+  if (summaryError) {
+    console.warn('[getInvoiceData] Failed to fetch payment summary:', summaryError);
+  } else {
+    paymentSummary = summaryData;
+  }
+
+  return dbDocumentToInvoice(doc, invoiceData, items, paymentSummary);
 }
 
 async function getReceiptData(doc: DbDocument): Promise<Receipt> {
@@ -1206,7 +1220,7 @@ function dbLineItemToLineItem(dbItem: DbLineItem): LineItem {
   };
 }
 
-function dbDocumentToInvoice(doc: DbDocument, invoiceData: any, items: DbLineItem[]): Invoice {
+function dbDocumentToInvoice(doc: DbDocument, invoiceData: any, items: DbLineItem[], paymentSummary?: any): Invoice {
   return {
     id: doc.id,
     documentType: 'invoice',
@@ -1234,6 +1248,12 @@ function dbDocumentToInvoice(doc: DbDocument, invoiceData: any, items: DbLineIte
     paymentTerms: invoiceData.payment_terms || undefined,
     createdAt: doc.created_at,
     updatedAt: doc.updated_at,
+    // Payment tracking fields
+    amountPaid: paymentSummary?.amount_paid ?? 0,
+    balanceDue: paymentSummary?.balance_due ?? (doc.total || doc.amount),
+    paymentCount: paymentSummary?.payment_count ?? 0,
+    paymentStatus: paymentSummary?.payment_status ?? 'unpaid',
+    lastPaymentDate: paymentSummary?.last_payment_date || undefined,
   };
 }
 

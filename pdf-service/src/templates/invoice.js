@@ -275,6 +275,87 @@ function generateInvoiceHTML(invoice, companyInfo = {}) {
             line-height: 1.4;
             white-space: pre-line;
         }
+
+        .payment-summary-section {
+            margin-top: 16pt;
+            border: 1pt solid #000000;
+        }
+
+        .payment-summary-header {
+            background: #e8e8e8;
+            padding: 8pt 12pt;
+            font-size: 11pt;
+            font-weight: bold;
+            border-bottom: 0.5pt solid #000000;
+        }
+
+        .payment-summary-content {
+            display: table;
+            width: 100%;
+        }
+
+        .payment-summary-row {
+            display: table-row;
+        }
+
+        .payment-summary-label {
+            display: table-cell;
+            padding: 8pt 12pt;
+            font-size: 10pt;
+            width: 50%;
+            border-bottom: 0.5pt solid #e0e0e0;
+        }
+
+        .payment-summary-value {
+            display: table-cell;
+            padding: 8pt 12pt;
+            font-size: 10pt;
+            text-align: right;
+            width: 50%;
+            border-bottom: 0.5pt solid #e0e0e0;
+        }
+
+        .payment-summary-row:last-child .payment-summary-label,
+        .payment-summary-row:last-child .payment-summary-value {
+            border-bottom: none;
+        }
+
+        .balance-due-row .payment-summary-label,
+        .balance-due-row .payment-summary-value {
+            font-weight: bold;
+            font-size: 11pt;
+            background: #fff3cd;
+        }
+
+        .fully-paid-row .payment-summary-label,
+        .fully-paid-row .payment-summary-value {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .payment-status-badge {
+            display: inline-block;
+            padding: 2pt 6pt;
+            border-radius: 3pt;
+            font-size: 8pt;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .status-unpaid {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .status-partially_paid {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .status-fully_paid {
+            background: #d1fae5;
+            color: #065f46;
+        }
     </style>
 </head>
 <body>
@@ -405,6 +486,35 @@ function generateInvoiceHTML(invoice, companyInfo = {}) {
                 </tr>
             </table>
         </div>
+
+        ${(invoice.amountPaid > 0 || invoice.paymentStatus === 'partially_paid' || invoice.paymentStatus === 'fully_paid') ? `
+        <div class="payment-summary-section">
+            <div class="payment-summary-header">Payment Summary</div>
+            <div class="payment-summary-content">
+                <div class="payment-summary-row">
+                    <div class="payment-summary-label">Invoice Total</div>
+                    <div class="payment-summary-value">${invoice.currency} ${formatNumber(total)}</div>
+                </div>
+                <div class="payment-summary-row">
+                    <div class="payment-summary-label">Amount Paid ${invoice.paymentCount > 1 ? `(${invoice.paymentCount} payments)` : ''}</div>
+                    <div class="payment-summary-value" style="color: #065f46;">${invoice.currency} ${formatNumber(invoice.amountPaid || 0)}</div>
+                </div>
+                <div class="payment-summary-row ${invoice.paymentStatus === 'fully_paid' ? 'fully-paid-row' : 'balance-due-row'}">
+                    <div class="payment-summary-label">
+                        Balance Due
+                        <span class="payment-status-badge status-${invoice.paymentStatus || 'unpaid'}">${(invoice.paymentStatus || 'unpaid').replace('_', ' ')}</span>
+                    </div>
+                    <div class="payment-summary-value">${invoice.currency} ${formatNumber(invoice.balanceDue || total)}</div>
+                </div>
+                ${invoice.lastPaymentDate ? `
+                <div class="payment-summary-row">
+                    <div class="payment-summary-label">Last Payment Date</div>
+                    <div class="payment-summary-value">${new Date(invoice.lastPaymentDate).toLocaleDateString()}</div>
+                </div>
+                ` : ''}
+            </div>
+        </div>
+        ` : ''}
 
         ${invoice.notes ? `
         <div class="notes-section">
