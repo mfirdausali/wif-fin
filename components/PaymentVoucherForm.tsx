@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { FormActionBar } from './forms/FormActionBar';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Textarea } from './ui/textarea';
@@ -900,10 +901,10 @@ export function PaymentVoucherForm({ accounts, onSubmit, onCancel, initialData }
             />
           </div>
 
-          <div className="flex gap-2">
-            <Button type="submit" className="flex-1">{initialData ? 'Update Payment Voucher' : 'Create Payment Voucher'}</Button>
-            <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
-          </div>
+          <FormActionBar
+            onCancel={onCancel}
+            submitLabel={initialData ? 'Update Payment Voucher' : 'Create Payment Voucher'}
+          />
         </form>
       </CardContent>
     </Card>

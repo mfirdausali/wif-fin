@@ -1,8 +1,8 @@
 // @ts-nocheck
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { FormActionBar } from './forms/FormActionBar';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Textarea } from './ui/textarea';
@@ -465,16 +465,11 @@ export function StatementOfPaymentForm({ paymentVouchers, accounts, onSubmit, on
             />
           </div>
 
-          <div className="flex gap-2">
-            <Button
-              type="submit"
-              className="flex-1"
-              disabled={issuedVouchers.length === 0}
-            >
-              {initialData ? 'Update Statement of Payment' : 'Create Statement of Payment'}
-            </Button>
-            <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
-          </div>
+          <FormActionBar
+            onCancel={onCancel}
+            submitLabel={initialData ? 'Update Statement of Payment' : 'Create Statement of Payment'}
+            submitDisabled={issuedVouchers.length === 0}
+          />
         </form>
       </CardContent>
     </Card>
