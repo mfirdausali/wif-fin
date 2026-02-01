@@ -6,6 +6,7 @@
 
 import { supabase } from './supabaseService';
 import { Booking, BookingLineItem, BookingStatus, BookingFilters, BookingWithProfit } from '../types/booking';
+import { PageResult } from '../types/document';
 // TODO: Update after running migration 002_bookings_only.sql
 // type BookingRow = Database['public']['Tables']['bookings']['Row'];
 // type BookingInsert = Database['public']['Tables']['bookings']['Insert'];
@@ -274,6 +275,64 @@ export async function getAllBookings(
   }
 
   return data.map(mapRowToBooking);
+}
+
+/**
+ * Get paginated bookings with optional filters
+ */
+export async function getBookingsPage(
+  companyId: string,
+  page: number,
+  pageSize: number,
+  filters?: BookingFilters
+): Promise<PageResult<Booking>> {
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  let query = supabase
+    .from('bookings')
+    .select('*', { count: 'exact' })
+    .eq('company_id', companyId);
+
+  // Apply same filters as getAllBookings
+  if (filters?.status) {
+    query = query.eq('status', filters.status);
+  }
+
+  if (filters?.isActive !== undefined) {
+    query = query.eq('is_active', filters.isActive);
+  }
+
+  if (filters?.startDateFrom) {
+    query = query.gte('trip_start_date', filters.startDateFrom);
+  }
+
+  if (filters?.startDateTo) {
+    query = query.lte('trip_start_date', filters.startDateTo);
+  }
+
+  if (filters?.country) {
+    query = query.eq('country', filters.country);
+  }
+
+  if (filters?.guestName) {
+    query = query.ilike('guest_name', `%${filters.guestName}%`);
+  }
+
+  const { data, error, count } = await query
+    .order('trip_start_date', { ascending: false })
+    .range(from, to);
+
+  if (error) {
+    throw new Error(`Failed to get bookings: ${error.message}`);
+  }
+
+  return {
+    items: (data || []).map(mapRowToBooking),
+    total: count || 0,
+    page,
+    pageSize,
+  };
 }
 
 /**
