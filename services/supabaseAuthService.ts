@@ -1,13 +1,29 @@
-// @ts-nocheck
 /**
  * Supabase Authentication Service
  *
  * Handles all authentication using Supabase Auth + custom user profiles
+ *
+ * NOTE: This service is designed for Supabase Auth integration with a separate
+ * user_profiles table. The current application uses a custom auth implementation
+ * with a 'users' table instead. This file is kept for potential future migration
+ * to Supabase Auth.
  */
 
 import { supabase } from '../lib/supabase';
-import type { User as SupabaseUser } from '@supabase/supabase-js';
 import type { PublicUser, UserRole } from '../types/auth';
+
+// Type for user_profiles table (not in current schema, but needed for this service)
+interface UserProfile {
+  id: string;
+  username: string;
+  full_name: string;
+  role: string;
+  is_active: boolean;
+  last_login: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
 // ============================================================================
 // AUTHENTICATION
@@ -41,11 +57,11 @@ export async function signUp(
     }
 
     return { success: true };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Sign up error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to create account',
+      error: error instanceof Error ? error.message : 'Failed to create account',
     };
   }
 }
@@ -77,20 +93,22 @@ export async function signIn(
     }
 
     // Update last login
-    await supabase
-      .from('user_profiles')
+    // Note: user_profiles table doesn't exist in current schema
+    // This would need the table to be created for Supabase Auth integration
+    await (supabase
+      .from('user_profiles' as 'users') // Type assertion for non-existent table
       .update({ last_login: new Date().toISOString() })
-      .eq('id', data.user.id);
+      .eq('id', data.user.id) as unknown as Promise<unknown>);
 
     return {
       success: true,
       user: profile,
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Sign in error:', error);
     return {
       success: false,
-      error: error.message || 'Invalid credentials',
+      error: error instanceof Error ? error.message : 'Invalid credentials',
     };
   }
 }
@@ -139,11 +157,13 @@ export async function isAuthenticated(): Promise<boolean> {
  */
 async function getUserProfile(userId: string): Promise<PublicUser | null> {
   try {
-    const { data, error } = await supabase
-      .from('user_profiles')
+    // Note: user_profiles table doesn't exist in current schema
+    // This would need the table to be created for Supabase Auth integration
+    const { data, error } = await (supabase
+      .from('user_profiles' as 'users') // Type assertion for non-existent table
       .select('*')
       .eq('id', userId)
-      .single();
+      .single() as unknown as Promise<{ data: UserProfile | null; error: Error | null }>);
 
     if (error) throw error;
 
@@ -161,8 +181,8 @@ async function getUserProfile(userId: string): Promise<PublicUser | null> {
       fullName: data.full_name,
       role: data.role as UserRole,
       isActive: data.is_active,
-      lastLogin: data.last_login,
-      createdBy: data.created_by,
+      lastLogin: data.last_login ?? undefined,
+      createdBy: data.created_by ?? '',
       createdAt: data.created_at,
       updatedAt: data.updated_at,
     };
@@ -177,10 +197,12 @@ async function getUserProfile(userId: string): Promise<PublicUser | null> {
  */
 export async function isSystemInitialized(): Promise<boolean> {
   try {
-    const { data, error } = await supabase
-      .from('user_profiles')
+    // Note: user_profiles table doesn't exist in current schema
+    // This would need the table to be created for Supabase Auth integration
+    const { data, error } = await (supabase
+      .from('user_profiles' as 'users') // Type assertion for non-existent table
       .select('id')
-      .limit(1);
+      .limit(1) as unknown as Promise<{ data: Array<{ id: string }> | null; error: Error | null }>);
 
     if (error) throw error;
 
@@ -223,7 +245,7 @@ export async function createInitialAdmin(
 export function onAuthStateChange(
   callback: (user: PublicUser | null) => void
 ) {
-  return supabase.auth.onAuthStateChange(async (event, session) => {
+  return supabase.auth.onAuthStateChange(async (_event, session) => {
     if (session?.user) {
       const profile = await getUserProfile(session.user.id);
       callback(profile);
