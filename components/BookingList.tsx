@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useCallback, CSSProperties, ReactElement } from 'react';
+import { List } from 'react-window';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { ScrollArea } from './ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { BookingWithProfit, BookingStatus, Booking } from '../types/booking';
 import { formatDate } from './ui/date-picker';
@@ -211,6 +211,53 @@ export function BookingList({ bookings, total, page, pageSize, onPageChange, onV
       .sort((a, b) => new Date(b.tripStartDate).getTime() - new Date(a.tripStartDate).getTime());
   };
 
+  // Height for each booking card in the virtualized list
+  const ITEM_HEIGHT = 280;
+  const LIST_HEIGHT = 600;
+
+  // Row component for the virtualized list
+  interface BookingRowProps {
+    bookingList: BookingWithProfit[];
+  }
+
+  const BookingRow = ({ index, style, bookingList }: {
+    index: number;
+    style: CSSProperties;
+    ariaAttributes: { "aria-posinset": number; "aria-setsize": number; role: "listitem" };
+  } & BookingRowProps): ReactElement | null => {
+    const booking = bookingList[index];
+    if (!booking) return null;
+
+    return (
+      <div style={{ ...style, paddingRight: '16px', paddingBottom: '12px' }}>
+        {renderBookingCard(booking)}
+      </div>
+    );
+  };
+
+  // Render virtualized list for a given set of bookings
+  const renderVirtualizedList = useCallback((bookingList: BookingWithProfit[], emptyMessage: string) => {
+    if (bookingList.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center py-12 text-center h-[600px]">
+          <Plane className="w-12 h-12 text-gray-300 mb-3" />
+          <p className="text-gray-500">{emptyMessage}</p>
+        </div>
+      );
+    }
+
+    return (
+      <List
+        defaultHeight={LIST_HEIGHT}
+        rowCount={bookingList.length}
+        rowHeight={ITEM_HEIGHT}
+        className="scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100"
+        rowComponent={BookingRow}
+        rowProps={{ bookingList }}
+      />
+    );
+  }, []);
+
   const renderBookingCard = (booking: BookingWithProfit) => (
     <div
       key={booking.id}
@@ -347,12 +394,6 @@ export function BookingList({ bookings, total, page, pageSize, onPageChange, onV
     </div>
   );
 
-  const renderEmptyState = (message: string) => (
-    <div className="text-center py-12">
-      <p className="text-gray-500">{message}</p>
-    </div>
-  );
-
   const planningBookings = filterByStatus('planning');
   const confirmedBookings = filterByStatus('confirmed');
   const inProgressBookings = filterByStatus('in_progress');
@@ -377,65 +418,26 @@ export function BookingList({ bookings, total, page, pageSize, onPageChange, onV
           </TabsList>
 
           <TabsContent value="all">
-            <ScrollArea className="h-[600px] pr-4">
-              <div className="space-y-4">
-                {bookings.length === 0 ? (
-                  renderEmptyState('No bookings found')
-                ) : (
-                  bookings
-                    .sort((a, b) => new Date(b.tripStartDate).getTime() - new Date(a.tripStartDate).getTime())
-                    .map(renderBookingCard)
-                )}
-              </div>
-            </ScrollArea>
+            {renderVirtualizedList(
+              [...bookings].sort((a, b) => new Date(b.tripStartDate).getTime() - new Date(a.tripStartDate).getTime()),
+              'No bookings found'
+            )}
           </TabsContent>
 
           <TabsContent value="planning">
-            <ScrollArea className="h-[600px] pr-4">
-              <div className="space-y-4">
-                {planningBookings.length === 0 ? (
-                  renderEmptyState('No bookings in planning')
-                ) : (
-                  planningBookings.map(renderBookingCard)
-                )}
-              </div>
-            </ScrollArea>
+            {renderVirtualizedList(planningBookings, 'No bookings in planning')}
           </TabsContent>
 
           <TabsContent value="confirmed">
-            <ScrollArea className="h-[600px] pr-4">
-              <div className="space-y-4">
-                {confirmedBookings.length === 0 ? (
-                  renderEmptyState('No confirmed bookings')
-                ) : (
-                  confirmedBookings.map(renderBookingCard)
-                )}
-              </div>
-            </ScrollArea>
+            {renderVirtualizedList(confirmedBookings, 'No confirmed bookings')}
           </TabsContent>
 
           <TabsContent value="in_progress">
-            <ScrollArea className="h-[600px] pr-4">
-              <div className="space-y-4">
-                {inProgressBookings.length === 0 ? (
-                  renderEmptyState('No bookings in progress')
-                ) : (
-                  inProgressBookings.map(renderBookingCard)
-                )}
-              </div>
-            </ScrollArea>
+            {renderVirtualizedList(inProgressBookings, 'No bookings in progress')}
           </TabsContent>
 
           <TabsContent value="completed">
-            <ScrollArea className="h-[600px] pr-4">
-              <div className="space-y-4">
-                {completedBookings.length === 0 ? (
-                  renderEmptyState('No completed bookings')
-                ) : (
-                  completedBookings.map(renderBookingCard)
-                )}
-              </div>
-            </ScrollArea>
+            {renderVirtualizedList(completedBookings, 'No completed bookings')}
           </TabsContent>
         </Tabs>
 
