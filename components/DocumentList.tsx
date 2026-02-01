@@ -14,6 +14,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { formatDate } from './ui/date-picker';
 import { logDocumentEvent } from '../services/activityLogService';
 import { getDocument } from '../services/supabaseService';
+import { statusBadge } from '../utils/statusBadges';
 
 interface DocumentListProps {
   documents: Document[];
@@ -81,21 +82,8 @@ export function DocumentList({ documents, total, page, pageSize, onPageChange, o
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'draft':
-        return 'bg-gray-100 text-gray-800';
-      case 'issued':
-        return 'bg-blue-100 text-blue-800';
-      case 'paid':
-      case 'completed':
-        return 'bg-green-100 text-green-800';
-      case 'cancelled':
-        return 'bg-red-100 text-red-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
+  // Use unified status badge utility for consistent styling
+  const getStatusBadge = (status: string) => statusBadge(status);
 
   const formatAmount = (amount: number, currency: string) => {
     return new Intl.NumberFormat('en-US', {
@@ -166,8 +154,8 @@ export function DocumentList({ documents, total, page, pageSize, onPageChange, o
           <div>
             <div className="flex items-center gap-2">
               <span>{doc.documentNumber}</span>
-              <Badge className={getStatusColor(doc.status)}>
-                {doc.status}
+              <Badge className={getStatusBadge(doc.status).className}>
+                {getStatusBadge(doc.status).label}
               </Badge>
             </div>
             <p className="text-sm text-gray-500 mt-1">
@@ -419,8 +407,8 @@ export function DocumentList({ documents, total, page, pageSize, onPageChange, o
                     : formatAmount(doc.amount, doc.currency)}
                 </TableCell>
                 <TableCell>
-                  <Badge className={`${getStatusColor(doc.status)} text-xs`}>
-                    {doc.status}
+                  <Badge className={`${getStatusBadge(doc.status).className} text-xs`}>
+                    {getStatusBadge(doc.status).label}
                   </Badge>
                 </TableCell>
                 <TableCell>
