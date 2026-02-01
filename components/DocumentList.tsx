@@ -7,7 +7,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Document, DocumentType } from '../types/document';
 import { FileText, Receipt, FileCheck, CheckCircle2, Calendar, DollarSign, Edit, Trash2, Download, Loader2, Paperclip, ChevronLeft, ChevronRight } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from './ui/alert-dialog';
-import { PdfService } from '../services/pdfService';
 import { getCompanyInfoAsync } from './Settings';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
@@ -32,6 +31,9 @@ export function DocumentList({ documents, total, page, pageSize, onPageChange, o
   const handleDownloadPDF = async (doc: Document) => {
     setDownloadingId(doc.id);
     try {
+      // Lazy-load PDF service for code splitting
+      const { PdfService } = await import('../services/pdfService');
+
       // Fetch fresh document data to ensure we have the latest (including discounts)
       const freshDoc = await getDocument(doc.id, doc.documentType);
 

@@ -24,7 +24,6 @@ import {
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from './ui/alert-dialog';
 import { BookingPrintDialog, PrintOptions } from './BookingPrintDialog';
 import { BookingFormPrintDialog, BookingFormPrintOptions } from './BookingFormPrintDialog';
-import { PdfService } from '../services/pdfService';
 import { getCompanyInfoAsync } from './Settings';
 import { useAuth } from '../contexts/AuthContext';
 import { logBookingEvent } from '../services/activityLogService';
@@ -60,6 +59,9 @@ export function BookingList({ bookings, total, page, pageSize, onPageChange, onV
     if (!selectedBookingForPrint) return;
 
     try {
+      // Lazy-load PDF service for code splitting
+      const { PdfService } = await import('../services/pdfService');
+
       const companyInfo = await getCompanyInfoAsync();
       const printerInfo = user ? {
         userName: user.fullName,
@@ -119,6 +121,9 @@ export function BookingList({ bookings, total, page, pageSize, onPageChange, onV
     if (!selectedBookingForFormPrint) return;
 
     try {
+      // Lazy-load PDF service for code splitting
+      const { PdfService } = await import('../services/pdfService');
+
       const companyInfo = await getCompanyInfoAsync();
 
       await PdfService.downloadBookingForm(

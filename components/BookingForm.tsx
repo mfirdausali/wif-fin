@@ -12,7 +12,6 @@ import { Booking, BookingStatus } from '../types/booking';
 import { Alert, AlertDescription } from './ui/alert';
 import { BookingFormLineItemEditor } from './BookingFormLineItemEditor';
 import { BookingFormPrintDialog, BookingFormPrintOptions } from './BookingFormPrintDialog';
-import { PdfService } from '../services/pdfService';
 import { getCompanyInfoAsync } from './Settings';
 import { useAuth } from '../contexts/AuthContext';
 import { logBookingEvent } from '../services/activityLogService';
@@ -173,6 +172,9 @@ export function BookingForm({ onSubmit, onCancel, initialData, companyId }: Book
     if (!initialData) return;
 
     try {
+      // Lazy-load PDF service for code splitting
+      const { PdfService } = await import('../services/pdfService');
+
       const companyInfo = await getCompanyInfoAsync();
 
       await PdfService.downloadBookingForm(
