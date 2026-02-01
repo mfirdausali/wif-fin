@@ -1,14 +1,17 @@
 /**
- * Activity Log Service - Google Sheets Backend
+ * Activity Log Service - Supabase Database Backend
  *
  * Provides comprehensive audit trail functionality:
- * - Log all user actions to Google Sheets
+ * - Log all user actions to Supabase database
  * - Search and filter logs
  * - Export logs
  * - System integrity tracking
  *
- * Uses Google Apps Script as backend for reliability and free storage.
- * Falls back to localStorage if Google Sheets is unavailable.
+ * Migrated from Google Sheets to Supabase for:
+ * - Better reliability and performance
+ * - Direct database querying capabilities
+ * - Proper RLS security
+ * - No external dependencies
  */
 
 import {
@@ -19,131 +22,212 @@ import {
 } from '../types/auth';
 import { Document } from '../types/document';
 import { Account } from '../types/account';
+import { supabase } from '../lib/supabase';
 
 // ============================================================================
 // CONFIGURATION
 // ============================================================================
 
-const GOOGLE_SHEETS_URL = import.meta.env.VITE_ACTIVITY_LOG_URL || '';
 const LOCAL_STORAGE_KEY = 'wif_activity_logs_pending';
 const MAX_RETRY_QUEUE = 100;
 
 // ============================================================================
-// GOOGLE SHEETS API
+// SUPABASE DATABASE API
 // ============================================================================
 
 /**
- * Check if Google Sheets integration is configured
+ * Get company_id for a user
+ * We need this for logging since activity_logs table requires company_id
  */
-function isGoogleSheetsConfigured(): boolean {
-  return !!GOOGLE_SHEETS_URL && GOOGLE_SHEETS_URL.includes('script.google.com');
-}
-
-/**
- * Send log to Google Sheets
- */
-async function sendToGoogleSheets(log: ActivityLog): Promise<boolean> {
-  if (!isGoogleSheetsConfigured()) {
-    return false;
-  }
-
+async function getUserCompanyId(userId: string): Promise<string | null> {
   try {
-    await fetch(GOOGLE_SHEETS_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        action: 'log',
-        log: log,
-      }),
-      mode: 'no-cors', // Google Apps Script requires this
-    });
+    const { data, error } = await supabase
+      .from('users')
+      .select('company_id')
+      .eq('id', userId)
+      .single();
 
-    // With no-cors, we can't read the response, assume success if no error
-    return true;
-  } catch (error) {
-    console.error('Failed to send log to Google Sheets:', error);
-    return false;
-  }
-}
-
-/**
- * Send batch of logs to Google Sheets
- */
-async function sendBatchToGoogleSheets(logs: ActivityLog[]): Promise<boolean> {
-  if (!isGoogleSheetsConfigured() || logs.length === 0) {
-    return false;
-  }
-
-  try {
-    await fetch(GOOGLE_SHEETS_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        action: 'batch',
-        logs: logs,
-      }),
-      mode: 'no-cors',
-    });
-
-    return true;
-  } catch (error) {
-    console.error('Failed to send batch to Google Sheets:', error);
-    return false;
-  }
-}
-
-/**
- * Fetch logs from Google Sheets
- */
-async function fetchFromGoogleSheets(filter?: ActivityLogFilter): Promise<ActivityLog[] | null> {
-  if (!isGoogleSheetsConfigured()) {
-    return null;
-  }
-
-  try {
-    const params = new URLSearchParams();
-    params.append('action', 'fetch');
-
-    if (filter?.userId) params.append('userId', filter.userId);
-    if (filter?.type) params.append('type', filter.type);
-    if (filter?.resourceType) params.append('resourceType', filter.resourceType);
-    if (filter?.startDate) params.append('startDate', filter.startDate);
-    if (filter?.endDate) params.append('endDate', filter.endDate);
-    if (filter?.search) params.append('search', filter.search);
-    if (filter?.page) params.append('page', filter.page.toString());
-    if (filter?.limit) params.append('limit', filter.limit.toString());
-
-    const response = await fetch(`${GOOGLE_SHEETS_URL}?${params.toString()}`);
-    const data = await response.json();
-
-    if (data.success) {
-      return data.logs;
+    if (error) {
+      console.error('Failed to get user company_id:', error);
+      return null;
     }
 
-    return null;
+    return (data as any)?.company_id || null;
   } catch (error) {
-    console.error('Failed to fetch from Google Sheets:', error);
+    console.error('Error fetching user company_id:', error);
     return null;
   }
+}
+
+/**
+ * Send log to Supabase database
+ */
+async function sendToDatabase(log: ActivityLog, companyId: string): Promise<boolean> {
+  try {
+    const { error } = await (supabase as any)
+      .from('activity_logs')
+      .insert({
+        user_id: log.userId,
+        company_id: companyId,
+        action: log.type,
+        entity_type: log.resourceType || null,
+        entity_id: log.resourceId || null,
+        metadata: {
+          ...log.metadata,
+          username: log.username,
+          description: log.description,
+        },
+        ip_address: log.ipAddress || null,
+        user_agent: log.userAgent || null,
+      });
+
+    if (error) {
+      console.error('Failed to insert activity log:', error);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Failed to send log to database:', error);
+    return false;
+  }
+}
+
+/**
+ * Send batch of logs to Supabase database
+ */
+async function sendBatchToDatabase(logs: Array<{ log: ActivityLog; companyId: string }>): Promise<boolean> {
+  if (logs.length === 0) return false;
+
+  try {
+    const records = logs.map(({ log, companyId }) => ({
+      user_id: log.userId,
+      company_id: companyId,
+      action: log.type,
+      entity_type: log.resourceType || null,
+      entity_id: log.resourceId || null,
+      metadata: {
+        ...log.metadata,
+        username: log.username,
+        description: log.description,
+      },
+      ip_address: log.ipAddress || null,
+      user_agent: log.userAgent || null,
+    }));
+
+    const { error } = await (supabase as any)
+      .from('activity_logs')
+      .insert(records);
+
+    if (error) {
+      console.error('Failed to insert batch of activity logs:', error);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Failed to send batch to database:', error);
+    return false;
+  }
+}
+
+/**
+ * Fetch logs from Supabase database
+ */
+async function fetchFromDatabase(filter?: ActivityLogFilter): Promise<ActivityLog[] | null> {
+  try {
+    let query = (supabase as any)
+      .from('activity_logs')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (filter?.userId) {
+      query = query.eq('user_id', filter.userId);
+    }
+
+    if (filter?.type) {
+      query = query.eq('action', filter.type);
+    }
+
+    if (filter?.resourceType) {
+      query = query.eq('entity_type', filter.resourceType);
+    }
+
+    if (filter?.startDate) {
+      query = query.gte('created_at', filter.startDate);
+    }
+
+    if (filter?.endDate) {
+      query = query.lte('created_at', filter.endDate);
+    }
+
+    if (filter?.search) {
+      // Search in metadata description field
+      query = query.ilike('metadata->>description', `%${filter.search}%`);
+    }
+
+    if (filter?.limit) {
+      query = query.limit(filter.limit);
+    }
+
+    if (filter?.page && filter?.limit) {
+      const offset = (filter.page - 1) * filter.limit;
+      query = query.range(offset, offset + filter.limit - 1);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('Failed to fetch activity logs:', error);
+      return null;
+    }
+
+    // Convert database records to ActivityLog format
+    return (data || []).map(dbLogToActivityLog);
+  } catch (error) {
+    console.error('Failed to fetch from database:', error);
+    return null;
+  }
+}
+
+/**
+ * Convert database record to ActivityLog
+ */
+function dbLogToActivityLog(dbLog: any): ActivityLog {
+  const metadata = dbLog.metadata || {};
+  return {
+    id: dbLog.id,
+    type: dbLog.action as ActivityType,
+    userId: dbLog.user_id,
+    username: metadata.username || 'unknown',
+    description: metadata.description || dbLog.action,
+    resourceId: dbLog.entity_id || undefined,
+    resourceType: dbLog.entity_type || undefined,
+    metadata: metadata,
+    ipAddress: dbLog.ip_address || undefined,
+    userAgent: dbLog.user_agent || undefined,
+    timestamp: dbLog.created_at,
+  };
 }
 
 // ============================================================================
 // PENDING QUEUE (localStorage fallback)
 // ============================================================================
 
+interface PendingLogEntry {
+  log: ActivityLog;
+  companyId: string;
+}
+
 /**
  * Get pending logs from localStorage
  */
-function getPendingLogs(): ActivityLog[] {
+function getPendingLogs(): PendingLogEntry[] {
   const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
   if (!stored) return [];
 
   try {
-    return JSON.parse(stored) as ActivityLog[];
+    return JSON.parse(stored) as PendingLogEntry[];
   } catch {
     return [];
   }
@@ -152,7 +236,7 @@ function getPendingLogs(): ActivityLog[] {
 /**
  * Save pending logs to localStorage
  */
-function savePendingLogs(logs: ActivityLog[]): void {
+function savePendingLogs(logs: PendingLogEntry[]): void {
   const logsToSave = logs.slice(-MAX_RETRY_QUEUE);
   localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(logsToSave));
 }
@@ -160,9 +244,9 @@ function savePendingLogs(logs: ActivityLog[]): void {
 /**
  * Add log to pending queue
  */
-function addToPendingQueue(log: ActivityLog): void {
+function addToPendingQueue(log: ActivityLog, companyId: string): void {
   const pending = getPendingLogs();
-  pending.push(log);
+  pending.push({ log, companyId });
   savePendingLogs(pending);
 }
 
@@ -180,7 +264,7 @@ async function retryPendingLogs(): Promise<void> {
   const pending = getPendingLogs();
   if (pending.length === 0) return;
 
-  const success = await sendBatchToGoogleSheets(pending);
+  const success = await sendBatchToDatabase(pending);
   if (success) {
     clearPendingQueue();
     console.log(`Successfully synced ${pending.length} pending activity logs`);
@@ -207,7 +291,7 @@ export function createUserReference(user: PublicUser) {
 // ============================================================================
 
 /**
- * Generate unique log ID
+ * Generate unique log ID (client-side ID, database will override with UUID)
  */
 function generateLogId(): string {
   return `LOG-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -238,12 +322,21 @@ export function logActivity(
     timestamp: new Date().toISOString(),
   };
 
-  // Send to Google Sheets (fire and forget)
-  sendToGoogleSheets(log).then(success => {
-    if (!success) {
-      // Add to pending queue for retry
-      addToPendingQueue(log);
+  // Send to database (fire and forget)
+  getUserCompanyId(user.id).then(companyId => {
+    if (!companyId) {
+      console.error('Cannot log activity: no company_id found for user', user.id);
+      // Still add to pending queue with a placeholder
+      addToPendingQueue(log, 'unknown');
+      return;
     }
+
+    sendToDatabase(log, companyId).then(success => {
+      if (!success) {
+        // Add to pending queue for retry
+        addToPendingQueue(log, companyId);
+      }
+    });
   });
 
   return log;
@@ -518,18 +611,18 @@ export function logTransactionEvent(
 
 /**
  * Get all activity logs with optional filtering
- * Fetches from Google Sheets, falls back to pending queue if unavailable
+ * Fetches from Supabase database, falls back to pending queue if unavailable
  */
 export async function getActivityLogsAsync(filter?: ActivityLogFilter): Promise<ActivityLog[]> {
-  // Try to fetch from Google Sheets
-  const logs = await fetchFromGoogleSheets(filter);
+  // Try to fetch from database
+  const logs = await fetchFromDatabase(filter);
 
   if (logs !== null) {
     return logs;
   }
 
-  // Return pending logs if Google Sheets unavailable
-  let pendingLogs = getPendingLogs();
+  // Return pending logs if database unavailable
+  let pendingLogs = getPendingLogs().map(p => p.log);
 
   // Apply filters to pending logs
   if (filter) {
@@ -569,7 +662,7 @@ export async function getActivityLogsAsync(filter?: ActivityLogFilter): Promise<
  * Returns pending logs only (cached locally)
  */
 export function getActivityLogs(filter?: ActivityLogFilter): ActivityLog[] {
-  let logs = getPendingLogs();
+  let logs = getPendingLogs().map(p => p.log);
 
   if (filter) {
     if (filter.userId) {
@@ -696,14 +789,14 @@ export async function downloadActivityLogs(
 // ============================================================================
 
 /**
- * Sync pending logs to Google Sheets
+ * Sync pending logs to database
  * Call this periodically or on app initialization
  */
 export async function syncPendingLogs(): Promise<number> {
   const pending = getPendingLogs();
   if (pending.length === 0) return 0;
 
-  const success = await sendBatchToGoogleSheets(pending);
+  const success = await sendBatchToDatabase(pending);
   if (success) {
     clearPendingQueue();
     return pending.length;
@@ -719,8 +812,8 @@ export function getSyncStatus() {
   const pending = getPendingLogs();
   return {
     pendingCount: pending.length,
-    googleSheetsConfigured: isGoogleSheetsConfigured(),
-    lastPendingTimestamp: pending.length > 0 ? pending[pending.length - 1].timestamp : null,
+    databaseConfigured: true, // Always true since we use Supabase
+    lastPendingTimestamp: pending.length > 0 ? pending[pending.length - 1].log.timestamp : null,
   };
 }
 
@@ -729,11 +822,6 @@ export function getSyncStatus() {
  * Attempts to sync pending logs on startup
  */
 export async function initActivityLogService(): Promise<void> {
-  if (isGoogleSheetsConfigured()) {
-    console.log('Activity Log Service: Google Sheets integration enabled');
-    await retryPendingLogs();
-  } else {
-    console.log('Activity Log Service: Running in offline mode (localStorage only)');
-    console.log('To enable Google Sheets, set VITE_ACTIVITY_LOG_URL in your .env file');
-  }
+  console.log('Activity Log Service: Supabase database backend enabled');
+  await retryPendingLogs();
 }
