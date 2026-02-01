@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * User Management Service (Supabase Version)
  *
@@ -15,7 +14,7 @@ import {
   Permission,
   ROLE_PERMISSIONS,
 } from '../types/auth';
-import { hashPasswordAsync, generateUserId, validatePasswordStrength } from './authService';
+import { hashPasswordAsync, validatePasswordStrength } from './authService';
 
 // ============================================================================
 // USER DATA PERSISTENCE (SUPABASE)
@@ -43,7 +42,7 @@ export async function loadUsers(): Promise<User[]> {
 /**
  * Save users to Supabase (bulk update - rarely used)
  */
-export async function saveUsers(users: User[]): Promise<void> {
+export async function saveUsers(_users: User[]): Promise<void> {
   // This function is kept for compatibility but not recommended
   // Use individual CRUD operations instead
   console.warn('saveUsers: Bulk operations not recommended with Supabase');
