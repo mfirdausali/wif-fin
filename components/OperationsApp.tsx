@@ -31,6 +31,11 @@ export function OperationsApp() {
   const [showVoucherForm, setShowVoucherForm] = useState(false);
   const [editingVoucher, setEditingVoucher] = useState<PaymentVoucher | null>(null);
 
+  // Pagination state for documents
+  const [docPage, setDocPage] = useState(1);
+  const [docPageSize] = useState(50);
+  const [docTotal, setDocTotal] = useState(0);
+
   // Handle logout
   const handleLogout = () => {
     if (user) {
@@ -47,12 +52,13 @@ export function OperationsApp() {
         const company = await SupabaseService.getOrCreateDefaultCompany();
         setCompanyId(company.id);
 
-        const [loadedDocs, loadedAccounts] = await Promise.all([
-          SupabaseService.getDocuments(company.id, 'operations'), // Filter to payment_voucher only
+        const [docPageResult, loadedAccounts] = await Promise.all([
+          SupabaseService.getDocumentsPage(company.id, docPage, docPageSize, 'operations'), // Filter to payment_voucher only
           SupabaseService.getAccounts(company.id)
         ]);
 
-        setDocuments(loadedDocs);
+        setDocuments(docPageResult.items);
+        setDocTotal(docPageResult.total);
         setAccounts(loadedAccounts);
       } catch (error) {
         console.error('Failed to load data:', error);
@@ -61,7 +67,7 @@ export function OperationsApp() {
     }
 
     loadData();
-  }, []);
+  }, [docPage, docPageSize]);
 
   // Filter to only payment vouchers
   const paymentVouchers = documents.filter(doc => doc.documentType === 'payment_voucher');
@@ -286,6 +292,10 @@ export function OperationsApp() {
               {/* Operations users do NOT have this permission, so delete button won't appear for them */}
               <DocumentList
                 documents={paymentVouchers}
+                total={docTotal}
+                page={docPage}
+                pageSize={docPageSize}
+                onPageChange={setDocPage}
                 onEdit={handleEditVoucher}
                 onDelete={userCanDelete ? handleDeleteVoucher : undefined}
               />

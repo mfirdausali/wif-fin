@@ -44,6 +44,11 @@ function AppContent() {
   const [showSettings, setShowSettings] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
 
+  // Pagination state for documents
+  const [docPage, setDocPage] = useState(1);
+  const [docPageSize] = useState(50);
+  const [docTotal, setDocTotal] = useState(0);
+
   // Track if data has been loaded from Supabase to prevent overwriting on mount
   const [dataLoaded, setDataLoaded] = useState(false);
 
@@ -68,14 +73,15 @@ function AppContent() {
         setCompanyId(company.id);
         setAllowNegativeBalance(company.allow_negative_balance || false);
 
-        // Load documents and accounts in parallel
+        // Load documents (paginated) and accounts in parallel
         // Filter documents for operations users (payment_voucher only)
-        const [loadedDocs, loadedAccounts] = await Promise.all([
-          SupabaseService.getDocuments(company.id, user?.role),
+        const [docPageResult, loadedAccounts] = await Promise.all([
+          SupabaseService.getDocumentsPage(company.id, docPage, docPageSize, user?.role),
           SupabaseService.getAccounts(company.id)
         ]);
 
-        setDocuments(loadedDocs);
+        setDocuments(docPageResult.items);
+        setDocTotal(docPageResult.total);
         setAccounts(loadedAccounts);
         setDataLoaded(true);
       } catch (error) {
@@ -88,7 +94,7 @@ function AppContent() {
     }
 
     loadData();
-  }, [user?.id]);
+  }, [user?.id, docPage, docPageSize]);
 
 
   // Check if onboarding should be shown
@@ -640,6 +646,10 @@ function AppContent() {
               {/* Document List */}
               <DocumentList
                 documents={documents}
+                total={docTotal}
+                page={docPage}
+                pageSize={docPageSize}
+                onPageChange={setDocPage}
                 onEdit={user && hasPermission(user, 'documents:edit') ? handleEditDocument : undefined}
                 onDelete={user && hasPermission(user, 'documents:delete') ? handleDeleteDocument : undefined}
               />

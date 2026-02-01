@@ -5,7 +5,7 @@ import { Button } from './ui/button';
 import { ScrollArea } from './ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Document, DocumentType } from '../types/document';
-import { FileText, Receipt, FileCheck, CheckCircle2, Calendar, DollarSign, Edit, Trash2, Download, Loader2, Paperclip } from 'lucide-react';
+import { FileText, Receipt, FileCheck, CheckCircle2, Calendar, DollarSign, Edit, Trash2, Download, Loader2, Paperclip, ChevronLeft, ChevronRight } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from './ui/alert-dialog';
 import { PdfService } from '../services/pdfService';
 import { getCompanyInfoAsync } from './Settings';
@@ -17,11 +17,15 @@ import { getDocument } from '../services/supabaseService';
 
 interface DocumentListProps {
   documents: Document[];
+  total: number;
+  page: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
   onEdit?: (document: Document) => void;
   onDelete?: (documentId: string) => void;
 }
 
-export function DocumentList({ documents, onEdit, onDelete }: DocumentListProps) {
+export function DocumentList({ documents, total, page, pageSize, onPageChange, onEdit, onDelete }: DocumentListProps) {
   const { user } = useAuth();
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
@@ -301,10 +305,12 @@ export function DocumentList({ documents, onEdit, onDelete }: DocumentListProps)
   const vouchers = filterByType('payment_voucher');
   const statements = filterByType('statement_of_payment');
 
+  const totalPages = Math.ceil(total / pageSize);
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Documents ({documents.length})</CardTitle>
+        <CardTitle>Documents ({total})</CardTitle>
       </CardHeader>
       <CardContent>
         <Tabs defaultValue="all" className="w-full">
@@ -385,6 +391,38 @@ export function DocumentList({ documents, onEdit, onDelete }: DocumentListProps)
             </ScrollArea>
           </TabsContent>
         </Tabs>
+
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between pt-4 border-t mt-4">
+            <div className="text-sm text-gray-600">
+              Showing {((page - 1) * pageSize) + 1} - {Math.min(page * pageSize, total)} of {total} documents
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onPageChange(page - 1)}
+                disabled={page <= 1}
+              >
+                <ChevronLeft className="w-4 h-4 mr-1" />
+                Previous
+              </Button>
+              <span className="text-sm text-gray-600 px-2">
+                Page {page} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onPageChange(page + 1)}
+                disabled={page >= totalPages}
+              >
+                Next
+                <ChevronRight className="w-4 h-4 ml-1" />
+              </Button>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
