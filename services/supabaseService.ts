@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Supabase Service Layer
  *
@@ -20,7 +19,7 @@
 import { supabase as supabaseClient, handleSupabaseError } from '../lib/supabase';
 
 export const supabase = supabaseClient;
-import type { Database } from '../types/database';
+import type { Database, Json } from '../types/database';
 import { Document, DocumentType, Invoice, Receipt, PaymentVoucher, StatementOfPayment, LineItem, Currency, Country, PageResult } from '../types/document';
 import { Account } from '../types/account';
 import { PublicUser } from '../types/auth';
@@ -32,7 +31,6 @@ type DbCompanyInsert = Database['public']['Tables']['companies']['Insert'];
 type DbAccount = Database['public']['Tables']['accounts']['Row'];
 type DbAccountInsert = Database['public']['Tables']['accounts']['Insert'];
 type DbDocument = Database['public']['Tables']['documents']['Row'];
-type DbDocumentInsert = Database['public']['Tables']['documents']['Insert'];
 type DbTransaction = Database['public']['Tables']['transactions']['Row'];
 type DbLineItem = Database['public']['Tables']['line_items']['Row'];
 type DbLineItemInsert = Database['public']['Tables']['line_items']['Insert'];
@@ -355,7 +353,9 @@ export async function createDocument(
     }
 
     // Build the payload for the RPC function
-    const payload: any = {
+    // Use type assertion to access properties that may not exist on all document types
+    const docWithExtras = document as Invoice | PaymentVoucher | StatementOfPayment;
+    const payload: Record<string, unknown> = {
       company_id: companyId,
       account_id: document.accountId || null,
       booking_id: bookingId || null,
@@ -366,13 +366,13 @@ export async function createDocument(
       currency: document.currency,
       country: document.country,
       amount: document.amount,
-      subtotal: document.subtotal || null,
-      document_discount_type: document.documentDiscountType || null,
-      document_discount_value: document.documentDiscountValue || null,
-      document_discount_amount: document.documentDiscountAmount || null,
-      tax_rate: document.taxRate || null,
-      tax_amount: document.taxAmount || null,
-      total: document.total || null,
+      subtotal: 'subtotal' in docWithExtras ? docWithExtras.subtotal : null,
+      document_discount_type: 'documentDiscountType' in docWithExtras ? docWithExtras.documentDiscountType : null,
+      document_discount_value: 'documentDiscountValue' in docWithExtras ? docWithExtras.documentDiscountValue : null,
+      document_discount_amount: 'documentDiscountAmount' in docWithExtras ? docWithExtras.documentDiscountAmount : null,
+      tax_rate: 'taxRate' in docWithExtras ? docWithExtras.taxRate : null,
+      tax_amount: 'taxAmount' in docWithExtras ? docWithExtras.taxAmount : null,
+      total: 'total' in docWithExtras ? docWithExtras.total : null,
       notes: document.notes || null,
     };
 
@@ -464,9 +464,10 @@ export async function createDocument(
       }
     }
 
-    // Add line items if present
-    if (document.items && document.items.length > 0) {
-      payload.line_items = document.items.map(item => ({
+    // Add line items if present (only Invoice, PaymentVoucher, and StatementOfPayment have items)
+    const docWithItems = document as Invoice | PaymentVoucher | StatementOfPayment;
+    if ('items' in docWithItems && docWithItems.items && docWithItems.items.length > 0) {
+      payload.line_items = docWithItems.items.map((item: LineItem) => ({
         description: item.description,
         quantity: item.quantity,
         unit_price: item.unitPrice,
@@ -479,7 +480,7 @@ export async function createDocument(
 
     // Call the RPC function - this executes in a single transaction
     const { data: documentId, error } = await supabase
-      .rpc('create_full_document', { payload });
+      .rpc('create_full_document', { payload: payload as unknown as Json });
 
     if (error) throw error;
     if (!documentId) throw new Error('Document creation returned no ID');
@@ -629,11 +630,14 @@ export async function getDocumentsPage(
   };
 }
 
+// Type for partial document projection used in list views
+type DbDocumentSummary = Pick<DbDocument, 'id' | 'document_type' | 'document_number' | 'status' | 'document_date' | 'currency' | 'country' | 'amount' | 'total' | 'account_id' | 'created_at' | 'updated_at'>;
+
 /**
  * Convert a database document row to a summary Document
  * Only includes list-safe fields; does not include line_items or type-specific records
  */
-function dbDocumentToSummary(row: DbDocument): Document {
+function dbDocumentToSummary(row: DbDocumentSummary): Document {
   return {
     id: row.id,
     documentType: row.document_type as DocumentType,
@@ -725,24 +729,27 @@ export async function updateDocument(companyId: string, documentId: string, upda
       return null;
     }
 
-    // Update base document
+    // Update base document - build update object with proper types
+    const updatesAny = updates as Record<string, unknown>;
+    const updateObj: Database['public']['Tables']['documents']['Update'] = {};
+
+    if (updates.documentNumber) updateObj.document_number = updates.documentNumber;
+    if (updates.status) updateObj.status = updates.status;
+    if (updates.amount !== undefined) updateObj.amount = updates.amount;
+    if ('subtotal' in updatesAny && updatesAny.subtotal !== undefined) updateObj.subtotal = updatesAny.subtotal as number | null;
+    if ('documentDiscountType' in updatesAny && updatesAny.documentDiscountType !== undefined) updateObj.document_discount_type = (updatesAny.documentDiscountType || null) as 'fixed' | 'percentage' | null;
+    if ('documentDiscountValue' in updatesAny && updatesAny.documentDiscountValue !== undefined) updateObj.document_discount_value = (updatesAny.documentDiscountValue || null) as number | null;
+    if ('documentDiscountAmount' in updatesAny && updatesAny.documentDiscountAmount !== undefined) updateObj.document_discount_amount = (updatesAny.documentDiscountAmount || null) as number | null;
+    if ('taxRate' in updatesAny && updatesAny.taxRate !== undefined) updateObj.tax_rate = updatesAny.taxRate as number | null;
+    if ('taxAmount' in updatesAny && updatesAny.taxAmount !== undefined) updateObj.tax_amount = updatesAny.taxAmount as number | null;
+    if ('total' in updatesAny && updatesAny.total !== undefined) updateObj.total = updatesAny.total as number | null;
+    if (updates.notes !== undefined) updateObj.notes = updates.notes || null;
+    if (updates.date) updateObj.document_date = updates.date;
+    if (updates.accountId !== undefined) updateObj.account_id = updates.accountId || null;
+
     const { data: docData, error: docError } = await supabase
       .from('documents')
-      .update({
-        ...(updates.documentNumber && { document_number: updates.documentNumber }),
-        ...(updates.status && { status: updates.status }),
-        ...(updates.amount !== undefined && { amount: updates.amount }),
-        ...(updates.subtotal !== undefined && { subtotal: updates.subtotal }),
-        ...(updates.documentDiscountType !== undefined && { document_discount_type: updates.documentDiscountType || null }),
-        ...(updates.documentDiscountValue !== undefined && { document_discount_value: updates.documentDiscountValue || null }),
-        ...(updates.documentDiscountAmount !== undefined && { document_discount_amount: updates.documentDiscountAmount || null }),
-        ...(updates.taxRate !== undefined && { tax_rate: updates.taxRate }),
-        ...(updates.taxAmount !== undefined && { tax_amount: updates.taxAmount }),
-        ...(updates.total !== undefined && { total: updates.total }),
-        ...(updates.notes !== undefined && { notes: updates.notes }),
-        ...(updates.date && { document_date: updates.date }),
-        ...(updates.accountId !== undefined && { account_id: updates.accountId || null }),
-      })
+      .update(updateObj)
       .eq('id', documentId)
       .eq('company_id', companyId)
       .select()
@@ -752,8 +759,9 @@ export async function updateDocument(companyId: string, documentId: string, upda
 
     const documentType = docData!.document_type as DocumentType;
 
-    // Update line items if provided
-    if (updates.items && updates.items.length > 0) {
+    // Update line items if provided (only for document types that have items)
+    const itemsUpdates = updatesAny.items as LineItem[] | undefined;
+    if (itemsUpdates && itemsUpdates.length > 0) {
       // Delete existing line items
       const { error: deleteError } = await supabase
         .from('line_items')
@@ -763,7 +771,7 @@ export async function updateDocument(companyId: string, documentId: string, upda
       if (deleteError) throw deleteError;
 
       // Insert new line items
-      await createLineItems(documentId, updates.items);
+      await createLineItems(documentId, itemsUpdates);
     }
 
     // Update type-specific data
@@ -1045,113 +1053,9 @@ export async function deleteDocument(companyId: string, documentId: string): Pro
 
 // ============================================================================
 // TYPE-SPECIFIC DOCUMENT OPERATIONS
+// Note: Individual create functions removed - document creation now uses
+// the RPC function create_full_document for atomicity
 // ============================================================================
-
-async function createInvoice(documentId: string, invoice: Invoice): Promise<void> {
-  const { error } = await supabase
-    .from('invoices')
-    .insert({
-      document_id: documentId,
-      customer_name: invoice.customerName,
-      customer_address: invoice.customerAddress || null,
-      customer_email: invoice.customerEmail || null,
-      invoice_date: invoice.invoiceDate,
-      due_date: invoice.dueDate,
-      payment_terms: invoice.paymentTerms || null,
-    });
-
-  if (error) throw error;
-}
-
-async function createReceipt(documentId: string, receipt: Receipt): Promise<void> {
-  // Look up the actual invoices.id from documents.id if linkedInvoiceId is provided
-  let invoiceId: string | null = null;
-  if (receipt.linkedInvoiceId) {
-    const { data: invoiceData } = await supabase
-      .from('invoices')
-      .select('id')
-      .eq('document_id', receipt.linkedInvoiceId)
-      .maybeSingle();
-
-    invoiceId = invoiceData?.id || null;
-  }
-
-  const { error } = await supabase
-    .from('receipts')
-    .insert({
-      document_id: documentId,
-      linked_invoice_id: invoiceId,
-      payer_name: receipt.payerName,
-      payer_contact: receipt.payerContact || null,
-      receipt_date: receipt.receiptDate,
-      payment_method: receipt.paymentMethod,
-      received_by: receipt.receivedBy,
-    });
-
-  if (error) throw error;
-}
-
-async function createPaymentVoucher(documentId: string, voucher: PaymentVoucher): Promise<void> {
-  const { error } = await supabase
-    .from('payment_vouchers')
-    .insert({
-      document_id: documentId,
-      payee_name: voucher.payeeName,
-      payee_address: voucher.payeeAddress || null,
-      payee_bank_account: voucher.payeeBankAccount || null,
-      payee_bank_name: voucher.payeeBankName || null,
-      voucher_date: voucher.voucherDate,
-      payment_due_date: voucher.paymentDueDate || null,
-      requested_by: voucher.requestedBy,
-      // Serialize UserReference object to JSON string for TEXT column storage
-      approved_by: voucher.approvedBy
-        ? (typeof voucher.approvedBy === 'object'
-            ? JSON.stringify(voucher.approvedBy)
-            : voucher.approvedBy)
-        : null,
-      approval_date: voucher.approvalDate || null,
-      supporting_doc_filename: voucher.supportingDocFilename || null,
-      supporting_doc_base64: voucher.supportingDocBase64 || null,
-      supporting_doc_storage_path: voucher.supportingDocStoragePath || null,
-    });
-
-  if (error) throw error;
-}
-
-async function createStatementOfPayment(documentId: string, statement: StatementOfPayment): Promise<void> {
-  // Look up the actual payment_vouchers.id from documents.id
-  let voucherId: string | null = null;
-  if (statement.linkedVoucherId) {
-    const { data: voucherData } = await supabase
-      .from('payment_vouchers')
-      .select('id')
-      .eq('document_id', statement.linkedVoucherId)
-      .maybeSingle();
-
-    voucherId = voucherData?.id || null;
-  }
-
-  // Note: linked_voucher_id is NOT NULL in schema, so this will fail if voucher doesn't exist
-  // This is expected - you can only create a statement of payment for an existing voucher
-  const { error } = await supabase
-    .from('statements_of_payment')
-    .insert({
-      document_id: documentId,
-      linked_voucher_id: voucherId,
-      payment_date: statement.paymentDate,
-      payment_method: statement.paymentMethod,
-      transaction_reference: statement.transactionReference,
-      transfer_proof_filename: statement.transferProofFilename || null,
-      transfer_proof_base64: statement.transferProofBase64 || null,
-      confirmed_by: statement.confirmedBy,
-      payee_name: statement.payeeName,
-      transaction_fee: statement.transactionFee || 0,
-      transaction_fee_type: statement.transactionFeeType || null,
-      total_deducted: statement.totalDeducted,
-    });
-
-  if (error) throw error;
-}
 
 // Fetch complete document data
 async function getInvoiceData(doc: DbDocument, items: DbLineItem[]): Promise<Invoice> {
@@ -1202,13 +1106,14 @@ async function getReceiptData(doc: DbDocument): Promise<Receipt> {
     receipt_date: doc.document_date,
     payment_method: 'Unknown',
     received_by: 'Unknown',
+    linked_invoice_id: null as string | null,
   };
 
   // Fetch linked invoice's document number and document_id if linkedInvoiceId exists
   // Using two-step query for reliability
   let linkedInvoiceNumber: string | undefined;
   let linkedInvoiceDocumentId: string | undefined;
-  if (receiptData.linked_invoice_id) {
+  if ('linked_invoice_id' in receiptData && receiptData.linked_invoice_id) {
     // Step 1: Get document_id from invoices table
     // The linked_invoice_id in receipts table references invoices.id (NOT documents.id)
     const { data: invoiceData, error: invoiceError } = await supabase
@@ -1239,7 +1144,7 @@ async function getReceiptData(doc: DbDocument): Promise<Receipt> {
         console.warn('[getReceiptData] Invoice document found but no document_number for document_id:', invoiceData.document_id);
       }
     } else {
-      console.warn('[getReceiptData] Invoice not found for linked_invoice_id:', receiptData.linked_invoice_id);
+      console.warn('[getReceiptData] Invoice not found for linked_invoice_id:', (receiptData as { linked_invoice_id?: string | null }).linked_invoice_id);
     }
   }
 
@@ -1311,7 +1216,7 @@ async function getStatementOfPaymentData(doc: DbDocument, items: DbLineItem[]): 
   }
 
   const statement = dbDocumentToStatementOfPayment(doc, statementData, items);
-  statement.linkedVoucherNumber = linkedVoucherNumber;
+  statement.linkedVoucherNumber = linkedVoucherNumber || statement.linkedVoucherNumber;
   return statement;
 }
 
@@ -1440,15 +1345,11 @@ function dbDocumentToReceipt(doc: DbDocument, receiptData: any, linkedInvoiceDoc
     id: doc.id,
     documentType: 'receipt',
     documentNumber: doc.document_number,
-    status: doc.status as any,
+    status: doc.status as Receipt['status'],
     date: doc.document_date,
     currency: doc.currency as Currency,
     country: doc.country as Country,
     amount: doc.amount,
-    subtotal: doc.subtotal || 0,
-    taxRate: doc.tax_rate || undefined,
-    taxAmount: doc.tax_amount || undefined,
-    total: doc.total || doc.amount,
     accountId: doc.account_id || undefined,
     accountName: undefined, // Will be filled in by caller if needed
     notes: doc.notes || undefined,
@@ -1523,7 +1424,7 @@ function dbDocumentToStatementOfPayment(doc: DbDocument, statementData: any, ite
     id: doc.id,
     documentType: 'statement_of_payment',
     documentNumber: doc.document_number,
-    status: doc.status as any,
+    status: doc.status as StatementOfPayment['status'],
     date: doc.document_date,
     currency: doc.currency as Currency,
     country: doc.country as Country,
@@ -1536,8 +1437,8 @@ function dbDocumentToStatementOfPayment(doc: DbDocument, statementData: any, ite
     accountName: undefined, // Will be filled in by caller if needed
     notes: doc.notes || undefined,
     items: items.map(dbLineItemToLineItem),
-    linkedVoucherId: statementData.linked_voucher_id,
-    linkedVoucherNumber: undefined, // Will be filled in by caller if needed
+    linkedVoucherId: statementData.linked_voucher_id || '', // Will be updated by caller
+    linkedVoucherNumber: '', // Will be filled in by caller
     paymentDate: statementData.payment_date,
     paymentMethod: statementData.payment_method,
     transactionReference: statementData.transaction_reference,
@@ -1571,9 +1472,10 @@ export interface InvoicePaymentStatus {
 }
 
 /**
- * Invoice with payment status for receipt form
+ * Invoice with detailed payment status for receipt form
+ * Note: Uses `paymentStatusDetails` to avoid conflict with Invoice.paymentStatus
  */
-export interface InvoiceWithPaymentStatus extends Invoice {
+export interface InvoiceWithPaymentStatus extends Omit<Invoice, 'paymentStatus'> {
   paymentStatus: InvoicePaymentStatus;
 }
 
@@ -1679,7 +1581,7 @@ export async function getInvoicePaymentStatus(
  * Used by Receipt form to show remaining balance when linking to invoices
  */
 export async function getInvoicesWithPaymentStatus(
-  companyId?: string
+  companyId: string
 ): Promise<InvoiceWithPaymentStatus[]> {
   try {
     // First get all non-cancelled invoices

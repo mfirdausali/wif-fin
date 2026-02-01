@@ -1,6 +1,7 @@
 /**
  * Database type definitions for Supabase
  * Generated from DATABASE_SCHEMA.md
+ * Updated for Supabase JS v2 compatibility
  */
 
 export type Json =
@@ -51,6 +52,7 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [];
       };
       accounts: {
         Row: {
@@ -110,6 +112,14 @@ export interface Database {
           updated_at?: string;
           deleted_at?: string | null;
         };
+        Relationships: [
+          {
+            foreignKeyName: 'accounts_company_id_fkey';
+            columns: ['company_id'];
+            referencedRelation: 'companies';
+            referencedColumns: ['id'];
+          }
+        ];
       };
       documents: {
         Row: {
@@ -125,6 +135,9 @@ export interface Database {
           country: 'Malaysia' | 'Japan';
           amount: number;
           subtotal: number | null;
+          document_discount_type: 'fixed' | 'percentage' | null;
+          document_discount_value: number | null;
+          document_discount_amount: number | null;
           tax_rate: number | null;
           tax_amount: number | null;
           total: number | null;
@@ -147,6 +160,9 @@ export interface Database {
           country: 'Malaysia' | 'Japan';
           amount: number;
           subtotal?: number | null;
+          document_discount_type?: 'fixed' | 'percentage' | null;
+          document_discount_value?: number | null;
+          document_discount_amount?: number | null;
           tax_rate?: number | null;
           tax_amount?: number | null;
           total?: number | null;
@@ -169,6 +185,9 @@ export interface Database {
           country?: 'Malaysia' | 'Japan';
           amount?: number;
           subtotal?: number | null;
+          document_discount_type?: 'fixed' | 'percentage' | null;
+          document_discount_value?: number | null;
+          document_discount_amount?: number | null;
           tax_rate?: number | null;
           tax_amount?: number | null;
           total?: number | null;
@@ -178,6 +197,20 @@ export interface Database {
           updated_at?: string;
           deleted_at?: string | null;
         };
+        Relationships: [
+          {
+            foreignKeyName: 'documents_company_id_fkey';
+            columns: ['company_id'];
+            referencedRelation: 'companies';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'documents_account_id_fkey';
+            columns: ['account_id'];
+            referencedRelation: 'accounts';
+            referencedColumns: ['id'];
+          }
+        ];
       };
       invoices: {
         Row: {
@@ -216,6 +249,14 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [
+          {
+            foreignKeyName: 'invoices_document_id_fkey';
+            columns: ['document_id'];
+            referencedRelation: 'documents';
+            referencedColumns: ['id'];
+          }
+        ];
       };
       receipts: {
         Row: {
@@ -254,6 +295,20 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [
+          {
+            foreignKeyName: 'receipts_document_id_fkey';
+            columns: ['document_id'];
+            referencedRelation: 'documents';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'receipts_linked_invoice_id_fkey';
+            columns: ['linked_invoice_id'];
+            referencedRelation: 'invoices';
+            referencedColumns: ['id'];
+          }
+        ];
       };
       payment_vouchers: {
         Row: {
@@ -310,6 +365,14 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [
+          {
+            foreignKeyName: 'payment_vouchers_document_id_fkey';
+            columns: ['document_id'];
+            referencedRelation: 'documents';
+            referencedColumns: ['id'];
+          }
+        ];
       };
       statements_of_payment: {
         Row: {
@@ -363,6 +426,20 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [
+          {
+            foreignKeyName: 'statements_of_payment_document_id_fkey';
+            columns: ['document_id'];
+            referencedRelation: 'documents';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'statements_of_payment_linked_voucher_id_fkey';
+            columns: ['linked_voucher_id'];
+            referencedRelation: 'payment_vouchers';
+            referencedColumns: ['id'];
+          }
+        ];
       };
       line_items: {
         Row: {
@@ -372,6 +449,9 @@ export interface Database {
           description: string;
           quantity: number;
           unit_price: number;
+          discount_type: 'fixed' | 'percentage' | null;
+          discount_value: number | null;
+          discount_amount: number | null;
           amount: number;
           created_at: string;
           updated_at: string;
@@ -383,6 +463,9 @@ export interface Database {
           description: string;
           quantity?: number;
           unit_price: number;
+          discount_type?: 'fixed' | 'percentage' | null;
+          discount_value?: number | null;
+          discount_amount?: number | null;
           amount: number;
           created_at?: string;
           updated_at?: string;
@@ -394,10 +477,21 @@ export interface Database {
           description?: string;
           quantity?: number;
           unit_price?: number;
+          discount_type?: 'fixed' | 'percentage' | null;
+          discount_value?: number | null;
+          discount_amount?: number | null;
           amount?: number;
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [
+          {
+            foreignKeyName: 'line_items_document_id_fkey';
+            columns: ['document_id'];
+            referencedRelation: 'documents';
+            referencedColumns: ['id'];
+          }
+        ];
       };
       transactions: {
         Row: {
@@ -439,6 +533,20 @@ export interface Database {
           transaction_date?: string;
           created_at?: string;
         };
+        Relationships: [
+          {
+            foreignKeyName: 'transactions_account_id_fkey';
+            columns: ['account_id'];
+            referencedRelation: 'accounts';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'transactions_document_id_fkey';
+            columns: ['document_id'];
+            referencedRelation: 'documents';
+            referencedColumns: ['id'];
+          }
+        ];
       };
       document_counters: {
         Row: {
@@ -468,6 +576,14 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [
+          {
+            foreignKeyName: 'document_counters_company_id_fkey';
+            columns: ['company_id'];
+            referencedRelation: 'companies';
+            referencedColumns: ['id'];
+          }
+        ];
       };
       users: {
         Row: {
@@ -518,6 +634,14 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [
+          {
+            foreignKeyName: 'users_company_id_fkey';
+            columns: ['company_id'];
+            referencedRelation: 'companies';
+            referencedColumns: ['id'];
+          }
+        ];
       };
       activity_logs: {
         Row: {
@@ -556,6 +680,20 @@ export interface Database {
           user_agent?: string | null;
           created_at?: string;
         };
+        Relationships: [
+          {
+            foreignKeyName: 'activity_logs_user_id_fkey';
+            columns: ['user_id'];
+            referencedRelation: 'users';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'activity_logs_company_id_fkey';
+            columns: ['company_id'];
+            referencedRelation: 'companies';
+            referencedColumns: ['id'];
+          }
+        ];
       };
       sessions: {
         Row: {
@@ -588,6 +726,14 @@ export interface Database {
           expires_at?: string;
           created_at?: string;
         };
+        Relationships: [
+          {
+            foreignKeyName: 'sessions_user_id_fkey';
+            columns: ['user_id'];
+            referencedRelation: 'users';
+            referencedColumns: ['id'];
+          }
+        ];
       };
       cost_centers: {
         Row: {
@@ -662,6 +808,14 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [
+          {
+            foreignKeyName: 'cost_centers_company_id_fkey';
+            columns: ['company_id'];
+            referencedRelation: 'companies';
+            referencedColumns: ['id'];
+          }
+        ];
       };
       booking_forms: {
         Row: {
@@ -754,10 +908,35 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [
+          {
+            foreignKeyName: 'booking_forms_document_id_fkey';
+            columns: ['document_id'];
+            referencedRelation: 'documents';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'booking_forms_cost_center_id_fkey';
+            columns: ['cost_center_id'];
+            referencedRelation: 'cost_centers';
+            referencedColumns: ['id'];
+          }
+        ];
       };
     };
     Views: {
-      [_ in never]: never;
+      invoice_payment_summary: {
+        Row: {
+          document_id: string | null;
+          invoice_total: number | null;
+          amount_paid: number | null;
+          balance_due: number | null;
+          payment_count: number | null;
+          payment_status: string | null;
+          last_payment_date: string | null;
+        };
+        Relationships: [];
+      };
     };
     Functions: {
       generate_document_number: {
@@ -767,8 +946,17 @@ export interface Database {
         };
         Returns: string;
       };
+      create_full_document: {
+        Args: {
+          payload: Json;
+        };
+        Returns: string;
+      };
     };
     Enums: {
+      [_ in never]: never;
+    };
+    CompositeTypes: {
       [_ in never]: never;
     };
   };
