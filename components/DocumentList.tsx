@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useCallback, CSSProperties, ReactElement } from 'react';
+import { List } from 'react-window';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { ScrollArea } from './ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Document, DocumentType } from '../types/document';
 import { FileText, Receipt, FileCheck, CheckCircle2, Calendar, DollarSign, Edit, Trash2, Download, Loader2, Paperclip, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -104,6 +104,53 @@ export function DocumentList({ documents, total, page, pageSize, onPageChange, o
     return documents.filter(doc => doc.documentType === type)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   };
+
+  // Height for each document card in the virtualized list
+  const ITEM_HEIGHT = 280;
+  const LIST_HEIGHT = 600;
+
+  // Row component for the virtualized list (react-window v2 API)
+  interface DocumentRowProps {
+    docs: Document[];
+  }
+
+  const DocumentRow = ({ index, style, docs }: {
+    index: number;
+    style: CSSProperties;
+    ariaAttributes: { "aria-posinset": number; "aria-setsize": number; role: "listitem" };
+  } & DocumentRowProps): ReactElement | null => {
+    const doc = docs[index];
+    if (!doc) return null;
+
+    return (
+      <div style={{ ...style, paddingRight: '16px', paddingBottom: '12px' }}>
+        {renderDocumentCard(doc)}
+      </div>
+    );
+  };
+
+  // Render virtualized list for a given set of documents
+  const renderVirtualizedList = useCallback((docs: Document[], emptyIcon: React.ReactNode, emptyMessage: string) => {
+    if (docs.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center py-12 text-center h-[600px]">
+          {emptyIcon}
+          <p className="text-gray-500">{emptyMessage}</p>
+        </div>
+      );
+    }
+
+    return (
+      <List
+        defaultHeight={LIST_HEIGHT}
+        rowCount={docs.length}
+        rowHeight={ITEM_HEIGHT}
+        className="scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100"
+        rowComponent={DocumentRow}
+        rowProps={{ docs }}
+      />
+    );
+  }, []);
 
   const renderDocumentCard = (doc: Document) => (
     <div key={doc.id} className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
@@ -323,72 +370,43 @@ export function DocumentList({ documents, total, page, pageSize, onPageChange, o
           </TabsList>
 
           <TabsContent value="all">
-            <ScrollArea className="h-[600px] pr-4">
-              {documents.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <FileText className="w-12 h-12 text-gray-300 mb-3" />
-                  <p className="text-gray-500">No documents created yet</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {documents
-                    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-                    .map(renderDocumentCard)}
-                </div>
-              )}
-            </ScrollArea>
+            {renderVirtualizedList(
+              [...documents].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+              <FileText className="w-12 h-12 text-gray-300 mb-3" />,
+              'No documents created yet'
+            )}
           </TabsContent>
 
           <TabsContent value="invoices">
-            <ScrollArea className="h-[600px] pr-4">
-              {invoices.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <FileText className="w-12 h-12 text-gray-300 mb-3" />
-                  <p className="text-gray-500">No invoices created yet</p>
-                </div>
-              ) : (
-                <div className="space-y-3">{invoices.map(renderDocumentCard)}</div>
-              )}
-            </ScrollArea>
+            {renderVirtualizedList(
+              invoices,
+              <FileText className="w-12 h-12 text-gray-300 mb-3" />,
+              'No invoices created yet'
+            )}
           </TabsContent>
 
           <TabsContent value="receipts">
-            <ScrollArea className="h-[600px] pr-4">
-              {receipts.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <Receipt className="w-12 h-12 text-gray-300 mb-3" />
-                  <p className="text-gray-500">No receipts created yet</p>
-                </div>
-              ) : (
-                <div className="space-y-3">{receipts.map(renderDocumentCard)}</div>
-              )}
-            </ScrollArea>
+            {renderVirtualizedList(
+              receipts,
+              <Receipt className="w-12 h-12 text-gray-300 mb-3" />,
+              'No receipts created yet'
+            )}
           </TabsContent>
 
           <TabsContent value="vouchers">
-            <ScrollArea className="h-[600px] pr-4">
-              {vouchers.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <FileCheck className="w-12 h-12 text-gray-300 mb-3" />
-                  <p className="text-gray-500">No payment vouchers created yet</p>
-                </div>
-              ) : (
-                <div className="space-y-3">{vouchers.map(renderDocumentCard)}</div>
-              )}
-            </ScrollArea>
+            {renderVirtualizedList(
+              vouchers,
+              <FileCheck className="w-12 h-12 text-gray-300 mb-3" />,
+              'No payment vouchers created yet'
+            )}
           </TabsContent>
 
           <TabsContent value="statements">
-            <ScrollArea className="h-[600px] pr-4">
-              {statements.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <CheckCircle2 className="w-12 h-12 text-gray-300 mb-3" />
-                  <p className="text-gray-500">No statements of payment created yet</p>
-                </div>
-              ) : (
-                <div className="space-y-3">{statements.map(renderDocumentCard)}</div>
-              )}
-            </ScrollArea>
+            {renderVirtualizedList(
+              statements,
+              <CheckCircle2 className="w-12 h-12 text-gray-300 mb-3" />,
+              'No statements of payment created yet'
+            )}
           </TabsContent>
         </Tabs>
 
