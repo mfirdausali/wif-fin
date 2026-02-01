@@ -21,7 +21,7 @@ import { supabase as supabaseClient, handleSupabaseError } from '../lib/supabase
 
 export const supabase = supabaseClient;
 import type { Database } from '../types/database';
-import { Document, DocumentType, Invoice, Receipt, PaymentVoucher, StatementOfPayment, LineItem, Currency, Country } from '../types/document';
+import { Document, DocumentType, Invoice, Receipt, PaymentVoucher, StatementOfPayment, LineItem, Currency, Country, PageResult } from '../types/document';
 import { Account } from '../types/account';
 import { PublicUser } from '../types/auth';
 import { logDocumentEvent } from './activityLogService';
@@ -488,6 +488,76 @@ export async function getDocuments(companyId: string, userRole?: string): Promis
     console.error('Error getting documents:', error);
     throw new Error(`Failed to get documents: ${handleSupabaseError(error)}`);
   }
+}
+
+/**
+ * Get paginated documents for a company with minimal projection
+ * Used for list views where full document details are not needed
+ * @param companyId - Company ID
+ * @param page - Page number (1-based)
+ * @param pageSize - Number of items per page
+ * @param userRole - Optional user role to filter documents (operations users only see payment_voucher)
+ * @param filters - Optional filters for document type
+ */
+export async function getDocumentsPage(
+  companyId: string,
+  page: number,
+  pageSize: number,
+  userRole?: string,
+  filters?: { documentType?: DocumentType }
+): Promise<PageResult<Document>> {
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  let query = supabase
+    .from('documents')
+    .select(
+      'id, document_type, document_number, status, document_date, currency, country, amount, total, account_id, created_at, updated_at',
+      { count: 'exact' }
+    )
+    .eq('company_id', companyId)
+    .is('deleted_at', null);
+
+  if (userRole === 'operations') {
+    query = query.eq('document_type', 'payment_voucher');
+  }
+  if (filters?.documentType) {
+    query = query.eq('document_type', filters.documentType);
+  }
+
+  const { data, error, count } = await query
+    .order('created_at', { ascending: false })
+    .range(from, to);
+
+  if (error) throw error;
+
+  return {
+    items: (data || []).map(dbDocumentToSummary),
+    total: count || 0,
+    page,
+    pageSize,
+  };
+}
+
+/**
+ * Convert a database document row to a summary Document
+ * Only includes list-safe fields; does not include line_items or type-specific records
+ */
+function dbDocumentToSummary(row: DbDocument): Document {
+  return {
+    id: row.id,
+    documentType: row.document_type as DocumentType,
+    documentNumber: row.document_number,
+    status: row.status as Document['status'],
+    date: row.document_date,
+    currency: row.currency as Document['currency'],
+    country: row.country as Document['country'],
+    amount: Number(row.amount),
+    total: row.total ? Number(row.total) : Number(row.amount),
+    accountId: row.account_id || undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  } as Document;
 }
 
 /**
