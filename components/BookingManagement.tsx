@@ -5,7 +5,7 @@ import { Button } from './ui/button';
 import { Plus } from 'lucide-react';
 import { Booking, BookingWithProfit } from '../types/booking';
 import {
-  getAllBookingsWithProfit,
+  getBookingsPageWithProfit,
   createBooking,
   updateBooking,
   deleteBooking
@@ -27,16 +27,20 @@ export function BookingManagement({ companyId }: BookingManagementProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [selectedBooking, setSelectedBooking] = useState<BookingWithProfit | null>(null);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(50);
+  const [total, setTotal] = useState(0);
 
   useEffect(() => {
     loadBookings();
-  }, [companyId]);
+  }, [companyId, page]);
 
   const loadBookings = async () => {
     try {
       setLoading(true);
-      const data = await getAllBookingsWithProfit(companyId);
-      setBookings(data);
+      const result = await getBookingsPageWithProfit(companyId, page, pageSize);
+      setBookings(result.items);
+      setTotal(result.total);
     } catch (error) {
       console.error('Failed to load bookings:', error);
       toast.error('Failed to load bookings', {
@@ -237,6 +241,10 @@ export function BookingManagement({ companyId }: BookingManagementProps) {
           )}
           <BookingList
             bookings={bookings}
+            total={total}
+            page={page}
+            pageSize={pageSize}
+            onPageChange={setPage}
             onView={handleView}
             onEdit={user ? (booking) => {
               if (canEditBooking(user, booking)) {

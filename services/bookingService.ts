@@ -490,3 +490,39 @@ export async function getAllBookingsWithProfit(
     };
   });
 }
+
+/**
+ * Get paginated bookings with profit metrics
+ */
+export async function getBookingsPageWithProfit(
+  companyId: string,
+  page: number,
+  pageSize: number,
+  filters?: BookingFilters
+): Promise<PageResult<BookingWithProfit>> {
+  // By default, filter out inactive (soft-deleted) bookings
+  const mergedFilters = {
+    ...filters,
+    isActive: filters?.isActive !== undefined ? filters.isActive : true
+  };
+
+  const result = await getBookingsPage(companyId, page, pageSize, mergedFilters);
+
+  const itemsWithProfit = result.items.map(booking => {
+    const profitMargin = booking.b2bPrice > 0
+      ? (booking.expectedProfit / booking.b2bPrice) * 100
+      : 0;
+
+    return {
+      ...booking,
+      profitMargin
+    };
+  });
+
+  return {
+    items: itemsWithProfit,
+    total: result.total,
+    page: result.page,
+    pageSize: result.pageSize,
+  };
+}

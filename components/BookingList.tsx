@@ -17,7 +17,9 @@ import {
   MapPin,
   Eye,
   Printer,
-  FileText
+  FileText,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from './ui/alert-dialog';
 import { BookingPrintDialog, PrintOptions } from './BookingPrintDialog';
@@ -30,17 +32,23 @@ import { toast } from 'sonner';
 
 interface BookingListProps {
   bookings: BookingWithProfit[];
+  total: number;
+  page: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
   onView?: (booking: BookingWithProfit) => void;
   onEdit?: (booking: BookingWithProfit) => void;
   onDelete?: (bookingId: string) => void;
 }
 
-export function BookingList({ bookings, onView, onEdit, onDelete }: BookingListProps) {
+export function BookingList({ bookings, total, page, pageSize, onPageChange, onView, onEdit, onDelete }: BookingListProps) {
   const { user } = useAuth();
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [selectedBookingForPrint, setSelectedBookingForPrint] = useState<BookingWithProfit | null>(null);
   const [formPrintDialogOpen, setFormPrintDialogOpen] = useState(false);
   const [selectedBookingForFormPrint, setSelectedBookingForFormPrint] = useState<BookingWithProfit | null>(null);
+
+  const totalPages = Math.ceil(total / pageSize);
 
   const handlePrintClick = (booking: BookingWithProfit, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -430,6 +438,38 @@ export function BookingList({ bookings, onView, onEdit, onDelete }: BookingListP
             </ScrollArea>
           </TabsContent>
         </Tabs>
+
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between pt-4 border-t mt-4">
+            <div className="text-sm text-gray-600">
+              Showing {((page - 1) * pageSize) + 1} - {Math.min(page * pageSize, total)} of {total} bookings
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onPageChange(page - 1)}
+                disabled={page <= 1}
+              >
+                <ChevronLeft className="w-4 h-4 mr-1" />
+                Previous
+              </Button>
+              <span className="text-sm text-gray-600 px-2">
+                Page {page} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onPageChange(page + 1)}
+                disabled={page >= totalPages}
+              >
+                Next
+                <ChevronRight className="w-4 h-4 ml-1" />
+              </Button>
+            </div>
+          </div>
+        )}
       </CardContent>
 
       {/* Print Dialog */}
