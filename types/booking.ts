@@ -4,6 +4,10 @@
  * Represents tour/trip bookings with detailed cost breakdown
  */
 
+import type { PageResult } from './document';
+
+export type { PageResult };
+
 export type BookingStatus = 'draft' | 'planning' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled';
 
 export interface BookingLineItem {

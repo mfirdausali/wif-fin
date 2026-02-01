@@ -145,3 +145,13 @@ export interface StatementOfPayment extends BaseDocument {
 }
 
 export type Document = Invoice | Receipt | PaymentVoucher | StatementOfPayment;
+
+/**
+ * Generic pagination result type for list responses
+ */
+export interface PageResult<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
