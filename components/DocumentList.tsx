@@ -4,8 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Document, DocumentType } from '../types/document';
-import { FileText, Receipt, FileCheck, CheckCircle2, Calendar, DollarSign, Edit, Trash2, Download, Loader2, Paperclip, ChevronLeft, ChevronRight } from 'lucide-react';
+import { FileText, Receipt, FileCheck, CheckCircle2, Calendar, DollarSign, Edit, Trash2, Download, Loader2, Paperclip, ChevronLeft, ChevronRight, LayoutGrid, LayoutList } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from './ui/alert-dialog';
 import { getCompanyInfoAsync } from './Settings';
 import { toast } from 'sonner';
@@ -24,9 +25,12 @@ interface DocumentListProps {
   onDelete?: (documentId: string) => void;
 }
 
+type ViewMode = 'card' | 'table';
+
 export function DocumentList({ documents, total, page, pageSize, onPageChange, onEdit, onDelete }: DocumentListProps) {
   const { user } = useAuth();
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>('card');
 
   const handleDownloadPDF = async (doc: Document) => {
     setDownloadingId(doc.id);
@@ -349,6 +353,141 @@ export function DocumentList({ documents, total, page, pageSize, onPageChange, o
     </div>
   );
 
+  // Get party name based on document type
+  const getPartyName = (doc: Document) => {
+    switch (doc.documentType) {
+      case 'invoice':
+        return doc.customerName || '-';
+      case 'receipt':
+        return doc.payerName || '-';
+      case 'payment_voucher':
+      case 'statement_of_payment':
+        return doc.payeeName || '-';
+      default:
+        return '-';
+    }
+  };
+
+  // Render table view for documents
+  const renderTableView = useCallback((docs: Document[], emptyIcon: React.ReactNode, emptyMessage: string) => {
+    if (docs.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center py-12 text-center">
+          {emptyIcon}
+          <p className="text-gray-500">{emptyMessage}</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="max-h-[600px] overflow-auto border rounded-lg">
+        <Table>
+          <TableHeader sticky>
+            <TableRow>
+              <TableHead>Document #</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead>Party</TableHead>
+              <TableHead>Date</TableHead>
+              <TableHead className="text-right">Amount</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {docs.map((doc) => (
+              <TableRow key={doc.id}>
+                <TableCell className="font-medium">
+                  <div className="flex items-center gap-2">
+                    {getDocumentIcon(doc.documentType)}
+                    <span>{doc.documentNumber}</span>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <span className="capitalize text-xs">
+                    {doc.documentType.replace('_', ' ')}
+                  </span>
+                </TableCell>
+                <TableCell className="max-w-[200px] truncate">
+                  {getPartyName(doc)}
+                </TableCell>
+                <TableCell className="text-sm text-gray-600">
+                  {formatDate(doc.date)}
+                </TableCell>
+                <TableCell className="text-right font-medium">
+                  {doc.documentType === 'statement_of_payment' && doc.totalDeducted
+                    ? formatAmount(doc.totalDeducted, doc.currency)
+                    : formatAmount(doc.amount, doc.currency)}
+                </TableCell>
+                <TableCell>
+                  <Badge className={`${getStatusColor(doc.status)} text-xs`}>
+                    {doc.status}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center justify-end gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDownloadPDF(doc)}
+                      disabled={downloadingId === doc.id}
+                      className="h-7 w-7 p-0"
+                    >
+                      {downloadingId === doc.id ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Download className="w-3 h-3" />
+                      )}
+                    </Button>
+                    {onEdit && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => onEdit(doc)}
+                        className="h-7 w-7 p-0"
+                      >
+                        <Edit className="w-3 h-3" />
+                      </Button>
+                    )}
+                    {onDelete && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete Document?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Are you sure you want to delete {doc.documentNumber}? This action cannot be undone.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => onDelete(doc.id)}
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            >
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    );
+  }, [downloadingId, onEdit, onDelete]);
+
   const invoices = filterByType('invoice');
   const receipts = filterByType('receipt');
   const vouchers = filterByType('payment_voucher');
@@ -356,10 +495,40 @@ export function DocumentList({ documents, total, page, pageSize, onPageChange, o
 
   const totalPages = Math.ceil(total / pageSize);
 
+  // Render documents based on view mode
+  const renderDocuments = (docs: Document[], emptyIcon: React.ReactNode, emptyMessage: string) => {
+    if (viewMode === 'table') {
+      return renderTableView(docs, emptyIcon, emptyMessage);
+    }
+    return renderVirtualizedList(docs, emptyIcon, emptyMessage);
+  };
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Documents ({total})</CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle>Documents ({total})</CardTitle>
+          <div className="flex items-center gap-1 border rounded-lg p-1">
+            <Button
+              variant={viewMode === 'card' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('card')}
+              className="h-7 px-2"
+              title="Card view"
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </Button>
+            <Button
+              variant={viewMode === 'table' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('table')}
+              className="h-7 px-2"
+              title="Table view (dense)"
+            >
+              <LayoutList className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
       </CardHeader>
       <CardContent>
         <Tabs defaultValue="all" className="w-full">
@@ -372,7 +541,7 @@ export function DocumentList({ documents, total, page, pageSize, onPageChange, o
           </TabsList>
 
           <TabsContent value="all">
-            {renderVirtualizedList(
+            {renderDocuments(
               [...documents].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
               <FileText className="w-12 h-12 text-gray-300 mb-3" />,
               'No documents created yet'
@@ -380,7 +549,7 @@ export function DocumentList({ documents, total, page, pageSize, onPageChange, o
           </TabsContent>
 
           <TabsContent value="invoices">
-            {renderVirtualizedList(
+            {renderDocuments(
               invoices,
               <FileText className="w-12 h-12 text-gray-300 mb-3" />,
               'No invoices created yet'
@@ -388,7 +557,7 @@ export function DocumentList({ documents, total, page, pageSize, onPageChange, o
           </TabsContent>
 
           <TabsContent value="receipts">
-            {renderVirtualizedList(
+            {renderDocuments(
               receipts,
               <Receipt className="w-12 h-12 text-gray-300 mb-3" />,
               'No receipts created yet'
@@ -396,7 +565,7 @@ export function DocumentList({ documents, total, page, pageSize, onPageChange, o
           </TabsContent>
 
           <TabsContent value="vouchers">
-            {renderVirtualizedList(
+            {renderDocuments(
               vouchers,
               <FileCheck className="w-12 h-12 text-gray-300 mb-3" />,
               'No payment vouchers created yet'
@@ -404,7 +573,7 @@ export function DocumentList({ documents, total, page, pageSize, onPageChange, o
           </TabsContent>
 
           <TabsContent value="statements">
-            {renderVirtualizedList(
+            {renderDocuments(
               statements,
               <CheckCircle2 className="w-12 h-12 text-gray-300 mb-3" />,
               'No statements of payment created yet'
