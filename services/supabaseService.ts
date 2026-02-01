@@ -325,6 +325,9 @@ async function generateInvoiceNumber(): Promise<string> {
 /**
  * Create a complete document (with type-specific data and line items)
  *
+ * ATOMICITY GUARANTEE: Uses a single database transaction via RPC.
+ * If any step fails, the entire operation rolls back.
+ *
  * RACE CONDITION FIX: Document numbers are generated atomically at insert time,
  * not when the form loads. This prevents duplicate numbers when multiple users
  * create documents simultaneously.
@@ -351,13 +354,13 @@ export async function createDocument(
       console.log(`[createDocument] Using existing number for document ${document.id}: ${documentNumber}`);
     }
 
-    // 1. Create base document
-    const docInsert: DbDocumentInsert = {
+    // Build the payload for the RPC function
+    const payload: any = {
       company_id: companyId,
       account_id: document.accountId || null,
       booking_id: bookingId || null,
       document_type: document.documentType,
-      document_number: documentNumber, // Use the freshly generated number
+      document_number: documentNumber,
       status: document.status,
       document_date: document.date,
       currency: document.currency,
@@ -373,37 +376,117 @@ export async function createDocument(
       notes: document.notes || null,
     };
 
-    const { data: docData, error: docError } = await supabase
-      .from('documents')
-      .insert(docInsert)
-      .select()
-      .single();
-
-    if (docError) throw docError;
-    const documentId = docData!.id;
-
-    // 2. Create type-specific data
+    // Add type-specific data
     switch (document.documentType) {
-      case 'invoice':
-        await createInvoice(documentId, document as Invoice);
+      case 'invoice': {
+        const invoice = document as Invoice;
+        payload.invoice_data = {
+          customer_name: invoice.customerName,
+          customer_address: invoice.customerAddress || null,
+          customer_email: invoice.customerEmail || null,
+          invoice_date: invoice.invoiceDate,
+          due_date: invoice.dueDate,
+          payment_terms: invoice.paymentTerms || null,
+        };
         break;
-      case 'receipt':
-        await createReceipt(documentId, document as Receipt);
+      }
+      case 'receipt': {
+        const receipt = document as Receipt;
+        // Look up the actual invoices.id from documents.id if linkedInvoiceId is provided
+        let invoiceId: string | null = null;
+        if (receipt.linkedInvoiceId) {
+          const { data: invoiceData } = await supabase
+            .from('invoices')
+            .select('id')
+            .eq('document_id', receipt.linkedInvoiceId)
+            .maybeSingle();
+          invoiceId = invoiceData?.id || null;
+        }
+        payload.receipt_data = {
+          linked_invoice_id: invoiceId,
+          payer_name: receipt.payerName,
+          payer_contact: receipt.payerContact || null,
+          receipt_date: receipt.receiptDate,
+          payment_method: receipt.paymentMethod,
+          received_by: receipt.receivedBy,
+        };
         break;
-      case 'payment_voucher':
-        await createPaymentVoucher(documentId, document as PaymentVoucher);
+      }
+      case 'payment_voucher': {
+        const voucher = document as PaymentVoucher;
+        payload.voucher_data = {
+          payee_name: voucher.payeeName,
+          payee_address: voucher.payeeAddress || null,
+          payee_bank_account: voucher.payeeBankAccount || null,
+          payee_bank_name: voucher.payeeBankName || null,
+          voucher_date: voucher.voucherDate,
+          payment_due_date: voucher.paymentDueDate || null,
+          requested_by: voucher.requestedBy,
+          // Serialize UserReference object to JSON string for TEXT column storage
+          approved_by: voucher.approvedBy
+            ? (typeof voucher.approvedBy === 'object'
+                ? JSON.stringify(voucher.approvedBy)
+                : voucher.approvedBy)
+            : null,
+          approval_date: voucher.approvalDate || null,
+          supporting_doc_filename: voucher.supportingDocFilename || null,
+          supporting_doc_base64: voucher.supportingDocBase64 || null,
+          supporting_doc_storage_path: voucher.supportingDocStoragePath || null,
+        };
         break;
-      case 'statement_of_payment':
-        await createStatementOfPayment(documentId, document as StatementOfPayment);
+      }
+      case 'statement_of_payment': {
+        const statement = document as StatementOfPayment;
+        // Look up the actual payment_vouchers.id from documents.id
+        let voucherId: string | null = null;
+        if (statement.linkedVoucherId) {
+          const { data: voucherData } = await supabase
+            .from('payment_vouchers')
+            .select('id')
+            .eq('document_id', statement.linkedVoucherId)
+            .maybeSingle();
+          voucherId = voucherData?.id || null;
+        }
+        payload.statement_data = {
+          linked_voucher_id: voucherId,
+          payment_date: statement.paymentDate,
+          payment_method: statement.paymentMethod,
+          transaction_reference: statement.transactionReference,
+          transfer_proof_filename: statement.transferProofFilename || null,
+          transfer_proof_base64: statement.transferProofBase64 || null,
+          confirmed_by: statement.confirmedBy,
+          payee_name: statement.payeeName,
+          transaction_fee: statement.transactionFee || 0,
+          transaction_fee_type: statement.transactionFeeType || null,
+          total_deducted: statement.totalDeducted,
+        };
         break;
+      }
     }
 
-    // 3. Create line items if present
+    // Add line items if present
     if (document.items && document.items.length > 0) {
-      await createLineItems(documentId, document.items);
+      payload.line_items = document.items.map(item => ({
+        description: item.description,
+        quantity: item.quantity,
+        unit_price: item.unitPrice,
+        discount_type: item.discountType || null,
+        discount_value: item.discountValue || null,
+        discount_amount: item.discountAmount || null,
+        amount: item.amount,
+      }));
     }
 
-    // 4. Fetch and return complete document
+    // Call the RPC function - this executes in a single transaction
+    const { data: documentId, error } = await supabase
+      .rpc('create_full_document', { payload });
+
+    if (error) throw error;
+    if (!documentId) throw new Error('Document creation returned no ID');
+
+    console.log(`[createDocument] Created document ${documentId} atomically via RPC`);
+
+    // Fetch and return complete document
     return await getDocument(documentId, document.documentType);
   } catch (error) {
     console.error('Error creating document:', error);
