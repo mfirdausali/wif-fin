@@ -188,7 +188,7 @@ function AppContent() {
 
       if (createdDoc.documentType === 'statement_of_payment') {
         // Mark payment voucher as completed
-        await SupabaseService.updateDocument(createdDoc.linkedVoucherId, { status: 'completed' });
+        await SupabaseService.updateDocument(companyId, createdDoc.linkedVoucherId, { status: 'completed' });
         const linkedVoucher = documents.find(doc => doc.id === createdDoc.linkedVoucherId);
         setDocuments(prev => prev.map(doc =>
           doc.id === createdDoc.linkedVoucherId ? { ...doc, status: 'completed' as const } : doc
@@ -248,7 +248,7 @@ function AppContent() {
 
     try {
       // Update the document in Supabase first
-      const updatedInSupabase = await SupabaseService.updateDocument(editingDocument.id, updatedDocument);
+      const updatedInSupabase = await SupabaseService.updateDocument(companyId!, editingDocument.id, updatedDocument);
 
       if (updatedInSupabase) {
         console.log('✓ Document updated in Supabase');
@@ -381,7 +381,7 @@ function AppContent() {
 
       if (docToDelete.documentType === 'statement_of_payment' && docToDelete.linkedVoucherId) {
         // Mark payment voucher back to issued status
-        await SupabaseService.updateDocument(docToDelete.linkedVoucherId, { status: 'issued' });
+        await SupabaseService.updateDocument(companyId!, docToDelete.linkedVoucherId, { status: 'issued' });
         const linkedVoucher = documents.find(doc => doc.id === docToDelete.linkedVoucherId);
         setDocuments(prev => prev.map(doc =>
           doc.id === docToDelete.linkedVoucherId ? { ...doc, status: 'issued' as const } : doc
@@ -398,7 +398,7 @@ function AppContent() {
       }
 
       // Delete the document from Supabase (triggers reverse_transaction_on_document_delete)
-      await SupabaseService.deleteDocument(documentId);
+      await SupabaseService.deleteDocument(companyId!, documentId);
       console.log('✓ Document deleted from Supabase');
 
       // Refresh accounts from database to get balance updated by trigger

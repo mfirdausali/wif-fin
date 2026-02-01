@@ -81,7 +81,7 @@ export function OperationsApp() {
     try {
       if (editingVoucher) {
         // Update existing voucher
-        const updatedDoc = await SupabaseService.updateDocument(editingVoucher.id, document);
+        const updatedDoc = await SupabaseService.updateDocument(companyId, editingVoucher.id, document);
         if (updatedDoc) {
           setDocuments(prev => prev.map(doc => doc.id === updatedDoc.id ? updatedDoc : doc));
 
@@ -143,7 +143,7 @@ export function OperationsApp() {
     }
 
     try {
-      await SupabaseService.deleteDocument(documentId);
+      await SupabaseService.deleteDocument(companyId!, documentId);
 
       // Log the deletion activity
       logDocumentEvent('document:deleted', user, documentToDelete, {

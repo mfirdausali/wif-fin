@@ -188,8 +188,11 @@ export async function getAccounts(companyId: string): Promise<Account[]> {
 
 /**
  * Update account
+ * @param companyId - Company ID for security scoping
+ * @param accountId - Account ID to update
+ * @param updates - Partial account updates
  */
-export async function updateAccount(accountId: string, updates: Partial<Account>): Promise<Account> {
+export async function updateAccount(companyId: string, accountId: string, updates: Partial<Account>): Promise<Account> {
   try {
     const { data, error } = await supabase
       .from('accounts')
@@ -200,6 +203,7 @@ export async function updateAccount(accountId: string, updates: Partial<Account>
         ...(updates.notes !== undefined && { notes: updates.notes }),
       })
       .eq('id', accountId)
+      .eq('company_id', companyId)
       .select()
       .single();
 
@@ -213,13 +217,16 @@ export async function updateAccount(accountId: string, updates: Partial<Account>
 
 /**
  * Soft delete account
+ * @param companyId - Company ID for security scoping
+ * @param accountId - Account ID to delete
  */
-export async function deleteAccount(accountId: string): Promise<void> {
+export async function deleteAccount(companyId: string, accountId: string): Promise<void> {
   try {
     const { error } = await supabase
       .from('accounts')
       .update({ deleted_at: new Date().toISOString() })
-      .eq('id', accountId);
+      .eq('id', accountId)
+      .eq('company_id', companyId);
 
     if (error) throw error;
   } catch (error) {
@@ -613,21 +620,25 @@ export async function getDocument(documentId: string, documentType: DocumentType
 /**
  * Update a document
  * Returns null if document doesn't exist (graceful handling for legacy data)
+ * @param companyId - Company ID for security scoping
+ * @param documentId - Document ID to update
+ * @param updates - Partial document updates
  */
-export async function updateDocument(documentId: string, updates: Partial<Document>): Promise<Document | null> {
+export async function updateDocument(companyId: string, documentId: string, updates: Partial<Document>): Promise<Document | null> {
   try {
-    // First check if document exists
+    // First check if document exists and belongs to company
     const { data: existingDoc, error: checkError } = await supabase
       .from('documents')
       .select('id, document_type')
       .eq('id', documentId)
+      .eq('company_id', companyId)
       .maybeSingle();
 
     if (checkError) throw checkError;
 
     // If document doesn't exist in Supabase, return null (legacy data from localStorage)
     if (!existingDoc) {
-      console.log(`Document ${documentId} not found in Supabase (may be legacy localStorage data)`);
+      console.log(`Document ${documentId} not found in Supabase for company ${companyId} (may be legacy localStorage data)`);
       return null;
     }
 
@@ -650,6 +661,7 @@ export async function updateDocument(documentId: string, updates: Partial<Docume
         ...(updates.accountId !== undefined && { account_id: updates.accountId || null }),
       })
       .eq('id', documentId)
+      .eq('company_id', companyId)
       .select()
       .single();
 
@@ -756,12 +768,14 @@ export async function updateDocument(documentId: string, updates: Partial<Docume
 
 /**
  * Link document to a booking
+ * @param companyId - Company ID for security scoping
  * @param documentId - ID of the document to link
  * @param bookingId - ID of the booking to link to
  * @param user - Optional user for activity logging
  * @param document - Optional document object for activity logging (if not provided, will be fetched)
  */
 export async function linkDocumentToBooking(
+  companyId: string,
   documentId: string,
   bookingId: string,
   user?: PublicUser,
@@ -771,7 +785,8 @@ export async function linkDocumentToBooking(
     const { error } = await supabase
       .from('documents')
       .update({ booking_id: bookingId })
-      .eq('id', documentId);
+      .eq('id', documentId)
+      .eq('company_id', companyId);
 
     if (error) throw error;
 
@@ -790,12 +805,14 @@ export async function linkDocumentToBooking(
 
 /**
  * Unlink document from booking
+ * @param companyId - Company ID for security scoping
  * @param documentId - ID of the document to unlink
  * @param user - Optional user for activity logging
  * @param document - Optional document object for activity logging
  * @param previousBookingId - Optional previous booking ID for logging
  */
 export async function unlinkDocumentFromBooking(
+  companyId: string,
   documentId: string,
   user?: PublicUser,
   document?: Document,
@@ -805,7 +822,8 @@ export async function unlinkDocumentFromBooking(
     const { error } = await supabase
       .from('documents')
       .update({ booking_id: null })
-      .eq('id', documentId);
+      .eq('id', documentId)
+      .eq('company_id', companyId);
 
     if (error) throw error;
 
@@ -826,18 +844,21 @@ export async function unlinkDocumentFromBooking(
  * Check if a document can be deleted
  * Validates business rules:
  * - Payment Vouchers cannot be deleted if referenced by any Statement of Payment
+ * @param companyId - Company ID for security scoping
  * @param documentId - Document ID to check
  * @returns Object with canDelete flag and optional reason message
  */
 export async function checkCanDeleteDocument(
+  companyId: string,
   documentId: string
 ): Promise<{ canDelete: boolean; reason?: string }> {
   try {
-    // Get the document to check its type
+    // Get the document to check its type (scoped by company)
     const { data: docData, error: docError } = await supabase
       .from('documents')
       .select('document_type')
       .eq('id', documentId)
+      .eq('company_id', companyId)
       .is('deleted_at', null)
       .maybeSingle();
 
@@ -899,24 +920,27 @@ export async function checkCanDeleteDocument(
 /**
  * Soft delete a document
  * Returns false if document doesn't exist (graceful handling for legacy data)
+ * @param companyId - Company ID for security scoping
+ * @param documentId - Document ID to delete
  */
-export async function deleteDocument(documentId: string): Promise<boolean> {
+export async function deleteDocument(companyId: string, documentId: string): Promise<boolean> {
   try {
-    // First check if document exists
+    // First check if document exists and belongs to company
     const { data: existingDoc } = await supabase
       .from('documents')
       .select('id')
       .eq('id', documentId)
+      .eq('company_id', companyId)
       .maybeSingle();
 
-    // If document doesn't exist in Supabase, return false (legacy data)
+    // If document doesn't exist in Supabase for this company, return false (legacy data)
     if (!existingDoc) {
-      console.log(`Document ${documentId} not found in Supabase (may be legacy localStorage data)`);
+      console.log(`Document ${documentId} not found in Supabase for company ${companyId} (may be legacy localStorage data)`);
       return false;
     }
 
     // Check if document can be deleted (validates business rules)
-    const validation = await checkCanDeleteDocument(documentId);
+    const validation = await checkCanDeleteDocument(companyId, documentId);
     if (!validation.canDelete) {
       console.warn('Cannot delete document:', validation.reason);
       throw new Error(validation.reason || 'Cannot delete document');
@@ -925,7 +949,8 @@ export async function deleteDocument(documentId: string): Promise<boolean> {
     const { error } = await supabase
       .from('documents')
       .update({ deleted_at: new Date().toISOString() })
-      .eq('id', documentId);
+      .eq('id', documentId)
+      .eq('company_id', companyId);
 
     if (error) throw error;
     return true;
